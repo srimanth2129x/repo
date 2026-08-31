@@ -1,0 +1,28 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Environment files and secrets
+.env
+*.env
+
+# SQLite local databases and sensor checkpoints
+*.db
+*.sqlite3
+sensor_checkpoint.json
+
+# Node / Frontend build outputs
+node_modules/
+frontend/node_modules/
+frontend/dist/
+dist/
+
+# IDE / Editor folders
+.vscode/
+.idea/
