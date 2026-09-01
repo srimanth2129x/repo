@@ -249,5 +249,38 @@ class NetworkDiscoveryManager:
             return "Mobile Phone", "Smartphone / Mobile", "Mobile", 1
         else:
             return "Laptop / PC", "Workstation Endpoint", "Laptop / PC", 2
+def get_arp_table_devices(self) -> list:
+        """Reads the Windows ARP table to discover active local endpoints."""
+        import subprocess
+        import re
 
+        devices = []
+        try:
+            output = subprocess.check_output("arp -a", shell=True, text=True, stderr=subprocess.DEVNULL)
+            for line in output.splitlines():
+                match = re.search(r"(\d+\.\d+\.\d+\.\d+)\s+([0-9a-fA-F-]{17}|[0-9a-fA-F:]{17})\s+(\w+)", line)
+                if match:
+                    ip, mac, arp_type = match.groups()
+                    mac = mac.replace("-", ":").upper()
+
+                    # Filter out broadcast/multicast addresses
+                    if ip.endswith(".255") or ip.startswith("224.") or ip.startswith("239.") or mac == "FF:FF:FF:FF:FF:FF":
+                        continue
+
+                    hostname, vendor, dev_type, crit = self._fingerprint_device(ip, mac)
+                    devices.append({
+                        "id": f"dev-{ip.replace('.', '-')}",
+                        "ip_address": ip,
+                        "mac_address": mac,
+                        "hostname": hostname,
+                        "vendor": vendor,
+                        "device_type": dev_type,
+                        "os": "Windows / Generic OS",
+                        "status": "Online",
+                        "criticality": crit
+                    })
+        except Exception as e:
+            logger.error(f"Error reading ARP cache: {e}")
+
+        return devices
 discovery_manager = NetworkDiscoveryManager()
