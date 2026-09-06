@@ -16,21 +16,18 @@ function isIpInSubnet(deviceIp, iface) {
   if (!deviceIp || !iface || !iface.ip) return false
   if (deviceIp === iface.ip) return true
 
-  // Fast check: Match prefix blocks
-  const ifacePrefix = iface.ip.split('.').slice(0, 2).join('.')
-  const devPrefix = deviceIp.split('.').slice(0, 2).join('.')
-  
-  // Specific match for 10.107.x.x or 192.168.x.x
-  if (iface.ip.startsWith('10.107.') && deviceIp.startsWith('10.107.')) {
-    return true
-  }
-  if (iface.ip.startsWith('192.168.56.') && deviceIp.startsWith('192.168.56.')) {
-    return true
-  }
-  if (iface.ip.startsWith('169.254.') && deviceIp.startsWith('169.254.')) {
-    return true
+  // Compare first 3 octets for standard /24 subnets (e.g. 192.168.0.x)
+  const ifaceParts = iface.ip.split('.')
+  const devParts = deviceIp.split('.')
+  if (ifaceParts.length === 4 && devParts.length === 4) {
+    if (ifaceParts[0] === devParts[0] && ifaceParts[1] === devParts[1] && ifaceParts[2] === devParts[2]) {
+      return true
+    }
   }
 
+  // Fallback: Match prefix blocks
+  const ifacePrefix = iface.ip.split('.').slice(0, 2).join('.')
+  const devPrefix = deviceIp.split('.').slice(0, 2).join('.')
   return ifacePrefix === devPrefix
 }
 
@@ -70,12 +67,21 @@ export function Network({ onDiscoveryChange }) {
       setDevices(devList)
 
       if (ifaceList.length > 0 && !selectedIface) {
-        const wifi = ifaceList.find(
+        // Prioritize Wi-Fi, Ethernet, or active private subnets over APIPA/loopback
+        const preferred = ifaceList.find(
           (i) =>
-            i?.name?.toLowerCase().includes('wi-fi') ||
-            i?.name?.toLowerCase().includes('wlan')
+            i?.ip &&
+            !i.ip.startsWith('169.254.') &&
+            !i.ip.startsWith('127.') &&
+            (i?.name?.toLowerCase().includes('wi-fi') ||
+              i?.name?.toLowerCase().includes('wireless') ||
+              i?.name?.toLowerCase().includes('wlan') ||
+              i?.ip.startsWith('192.168.') ||
+              i?.ip.startsWith('10.'))
+        ) || ifaceList.find(
+          (i) => i?.ip && !i.ip.startsWith('169.254.') && !i.ip.startsWith('127.')
         )
-        setSelectedIface(wifi || ifaceList[0])
+        setSelectedIface(preferred || ifaceList[0])
       }
     } catch (err) {
       console.error('Failed to load network data:', err)
@@ -94,10 +100,11 @@ export function Network({ onDiscoveryChange }) {
     }
   }
 
-  // Filter devices belonging exclusively to the selected network card
+  // Filter devices belonging to the selected network card, or fallback to all devices if filtered set is empty
   const filteredDevices = useMemo(() => {
     if (!selectedIface) return devices
-    return devices.filter((dev) => isIpInSubnet(dev.ip_address, selectedIface))
+    const matched = devices.filter((dev) => isIpInSubnet(dev.ip_address, selectedIface))
+    return matched.length > 0 ? matched : devices
   }, [devices, selectedIface])
 
   const handleRunDiscovery = async () => {
@@ -107,6 +114,7 @@ export function Network({ onDiscoveryChange }) {
       await triggerDiscovery({
         interface: selectedIface.name,
         interface_name: selectedIface.name,
+        interface_ip: selectedIface.ip,
       })
       await fetchData()
       notifyChange()

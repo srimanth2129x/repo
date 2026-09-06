@@ -115,6 +115,21 @@ def get_network_interfaces():
                             "netmask": addr.netmask or "255.255.255.0",
                             "family": "AF_INET"
                         })
+
+        def _iface_priority(item):
+            ip = item.get("ip", "")
+            name = item.get("name", "").lower()
+            if ip.startswith("127."):
+                return 99
+            if ip.startswith("169.254."):
+                return 50
+            if "wi-fi" in name or "wireless" in name or "wlan" in name:
+                return 1
+            if "eth" in name or "en" in name:
+                return 2
+            return 10
+
+        interfaces.sort(key=_iface_priority)
     except Exception:
         interfaces = [{"name": "Ethernet0", "ip": "192.168.1.100", "netmask": "255.255.255.0", "family": "AF_INET"}]
 
@@ -159,6 +174,11 @@ def trigger_network_discover():
                         device_type, os, status, first_seen, last_seen, criticality
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, 'Online', ?, ?, ?)
                     ON CONFLICT(id) DO UPDATE SET
+                        mac_address = excluded.mac_address,
+                        hostname = excluded.hostname,
+                        vendor = excluded.vendor,
+                        device_type = excluded.device_type,
+                        os = excluded.os,
                         last_seen = excluded.last_seen,
                         status = 'Online'
                 """, (
