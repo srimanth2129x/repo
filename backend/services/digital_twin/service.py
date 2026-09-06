@@ -20,7 +20,7 @@ def build_networkx_graph(db_path: str = None) -> nx.Graph:
 
     with get_conn(db_path) as conn:
         cur = conn.cursor()
-        cur.execute("SELECT id, ip_address, hostname, vendor, device_type, status, trust_level, criticality, risk_score, risk_level, sensor_connected FROM devices")
+        cur.execute("SELECT id, ip_address, mac_address, hostname, vendor, device_type, status, trust_level, criticality, risk_score, risk_level, sensor_connected FROM devices")
         devices = cur.fetchall()
 
         for d in devices:
@@ -28,6 +28,8 @@ def build_networkx_graph(db_path: str = None) -> nx.Graph:
                 "id": d["id"],
                 "label": d["hostname"] if d["hostname"] and d["hostname"] != "Unknown Device" else d["ip_address"],
                 "ip": d["ip_address"],
+                "ip_address": d["ip_address"],
+                "mac_address": d["mac_address"] or "—",
                 "hostname": d["hostname"] or "Unknown",
                 "vendor": d["vendor"] or "Unknown",
                 "device_type": d["device_type"] or "Unknown",
@@ -89,44 +91,51 @@ def _infer_gateway_topology(G: nx.Graph):
 
 
 def get_topology_graph(db_path: str = None) -> Dict[str, Any]:
-    """Returns cytoscape-compatible topology representation."""
+    """Returns cytoscape-compatible topology representation with both flat and nested attributes."""
     G = build_networkx_graph(db_path)
     nodes = []
     edges = []
 
     for node_id, attrs in G.nodes(data=True):
+        node_data = {
+            "id": node_id,
+            "label": attrs.get("label", node_id),
+            "ip": attrs.get("ip", ""),
+            "ip_address": attrs.get("ip_address", attrs.get("ip", "")),
+            "hostname": attrs.get("hostname", "Unknown"),
+            "vendor": attrs.get("vendor", "Unknown"),
+            "mac_address": attrs.get("mac_address", "—"),
+            "type": attrs.get("device_type", "Workstation"),
+            "device_type": attrs.get("device_type", "Workstation"),
+            "status": attrs.get("status", "Online"),
+            "trust": attrs.get("trust", "Adaptive"),
+            "criticality": attrs.get("criticality", 1),
+            "risk_score": attrs.get("risk_score", 0.0),
+            "risk_level": attrs.get("risk_level", "ADAPTIVE"),
+            "sensor_connected": attrs.get("sensor_connected", False)
+        }
         nodes.append({
-            "data": {
-                "id": node_id,
-                "label": attrs.get("label", node_id),
-                "ip": attrs.get("ip", ""),
-                "hostname": attrs.get("hostname", "Unknown"),
-                "type": attrs.get("device_type", "Workstation"),
-                "device_type": attrs.get("device_type", "Workstation"),
-                "status": attrs.get("status", "Online"),
-                "trust": attrs.get("trust", "Adaptive"),
-                "criticality": attrs.get("criticality", 1),
-                "risk_score": attrs.get("risk_score", 0.0),
-                "risk_level": attrs.get("risk_level", "ADAPTIVE"),
-                "sensor_connected": attrs.get("sensor_connected", False)
-            }
+            **node_data,
+            "data": node_data
         })
 
     idx = 0
     for u, v, attrs in G.edges(data=True):
+        edge_data = {
+            "id": f"edge-{idx}",
+            "source": u,
+            "target": v,
+            "relationship": attrs.get("relationship_type", "network_reachability"),
+            "relationship_type": attrs.get("relationship_type", "network_reachability"),
+            "observed": attrs.get("observed", True),
+            "inferred": attrs.get("inferred", False),
+            "confidence": attrs.get("confidence", 0.85),
+            "protocol": attrs.get("protocol", "IP"),
+            "port": attrs.get("port")
+        }
         edges.append({
-            "data": {
-                "id": f"edge-{idx}",
-                "source": u,
-                "target": v,
-                "relationship": attrs.get("relationship_type", "network_reachability"),
-                "relationship_type": attrs.get("relationship_type", "network_reachability"),
-                "observed": attrs.get("observed", True),
-                "inferred": attrs.get("inferred", False),
-                "confidence": attrs.get("confidence", 0.85),
-                "protocol": attrs.get("protocol", "IP"),
-                "port": attrs.get("port")
-            }
+            **edge_data,
+            "data": edge_data
         })
         idx += 1
 

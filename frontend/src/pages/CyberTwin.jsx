@@ -10,6 +10,7 @@ import {
   Server,
   Laptop,
   Wifi,
+  Smartphone,
 } from 'lucide-react'
 import { Card, SectionHeader, Spinner, EmptyState, RiskBadge } from '../components/ui/Card'
 import { getTopology, runSimulation } from '../api/client'
@@ -32,8 +33,35 @@ export function CyberTwin() {
       const res = await getTopology()
       const data = res.data || {}
       
-      const safeNodes = Array.isArray(data.nodes) ? data.nodes : []
-      const safeEdges = Array.isArray(data.edges) ? data.edges : []
+      const rawNodes = Array.isArray(data.nodes) ? data.nodes : []
+      const rawEdges = Array.isArray(data.edges) ? data.edges : []
+
+      const safeNodes = rawNodes.map((n) => {
+        const d = n.data || n
+        return {
+          ...d,
+          ...n,
+          id: d.id || n.id,
+          hostname: d.hostname || n.hostname || 'Unknown Host',
+          ip_address: d.ip_address || d.ip || n.ip_address || n.ip || '0.0.0.0',
+          device_type: d.device_type || d.type || n.device_type || 'Node',
+          vendor: d.vendor || n.vendor || 'Unknown Vendor',
+          mac_address: d.mac_address || n.mac_address || '—',
+          status: d.status || n.status || 'Online',
+          risk_score: d.risk_score ?? n.risk_score ?? 0,
+          risk_level: d.risk_level || n.risk_level || 'ADAPTIVE',
+          sensor_connected: Boolean(d.sensor_connected ?? n.sensor_connected),
+        }
+      })
+      const safeEdges = rawEdges.map((e) => {
+        const d = e.data || e
+        return {
+          ...d,
+          ...e,
+          source: d.source || e.source,
+          target: d.target || e.target,
+        }
+      })
 
       setNodes(safeNodes)
       setEdges(safeEdges)
@@ -73,13 +101,14 @@ export function CyberTwin() {
   const filteredNodes = nodes.filter((node) => {
     if (filterType === 'ALL') return true
     const devType = String(node?.device_type || '').toUpperCase()
-    return devType === filterType.toUpperCase()
+    return devType.includes(filterType.toUpperCase())
   })
 
   const getDeviceIcon = (type) => {
     const t = String(type || '').toLowerCase()
     if (t.includes('router') || t.includes('gateway')) return <Wifi className="w-4 h-4 text-cyan-400" />
     if (t.includes('server')) return <Server className="w-4 h-4 text-indigo-400" />
+    if (t.includes('mobile') || t.includes('phone')) return <Smartphone className="w-4 h-4 text-emerald-400" />
     return <Laptop className="w-4 h-4 text-slate-300" />
   }
 
@@ -108,9 +137,9 @@ export function CyberTwin() {
           >
             <option value="ALL">All Nodes ({nodes.length})</option>
             <option value="ROUTER">Routers / Gateways</option>
+            <option value="LAPTOP">Laptops / PCs</option>
+            <option value="MOBILE">Mobile Devices</option>
             <option value="SERVER">Servers</option>
-            <option value="WORKSTATION">Workstations</option>
-            <option value="ENDPOINT">Endpoints</option>
           </select>
 
           <button

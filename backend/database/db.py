@@ -165,14 +165,45 @@ def init_db(db_path=None):
             )
         """)
 
-        # 8. Indexes
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(event_timestamp)")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_events_device_id ON events(device_id)")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_events_dedup ON events(device_id, channel, record_id)")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_status ON alerts(severity, status)")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_devices_criticality ON devices(criticality)")
+        # 8. Safe Schema Migrations for existing databases
+        cur.execute("PRAGMA table_info(events)")
+        existing_event_cols = [row["name"] for row in cur.fetchall()]
+        if "channel" not in existing_event_cols:
+            cur.execute("ALTER TABLE events ADD COLUMN channel TEXT NOT NULL DEFAULT 'Security'")
+        if "event_id" not in existing_event_cols:
+            cur.execute("ALTER TABLE events ADD COLUMN event_id INTEGER NOT NULL DEFAULT 0")
+        if "record_id" not in existing_event_cols:
+            cur.execute("ALTER TABLE events ADD COLUMN record_id INTEGER NOT NULL DEFAULT 0")
+        if "event_timestamp" not in existing_event_cols:
+            cur.execute("ALTER TABLE events ADD COLUMN event_timestamp TEXT")
+            if "timestamp" in existing_event_cols:
+                cur.execute("UPDATE events SET event_timestamp = timestamp WHERE event_timestamp IS NULL")
+            else:
+                now_str = datetime.now(timezone.utc).isoformat()
+                cur.execute("UPDATE events SET event_timestamp = ? WHERE event_timestamp IS NULL", (now_str,))
+        if "ingested_at" not in existing_event_cols:
+            cur.execute("ALTER TABLE events ADD COLUMN ingested_at TEXT")
+        if "user" not in existing_event_cols:
+            cur.execute("ALTER TABLE events ADD COLUMN user TEXT")
+        if "process_name" not in existing_event_cols:
+            cur.execute("ALTER TABLE events ADD COLUMN process_name TEXT")
+        if "parent_process" not in existing_event_cols:
+            cur.execute("ALTER TABLE events ADD COLUMN parent_process TEXT")
+        if "command_line" not in existing_event_cols:
+            cur.execute("ALTER TABLE events ADD COLUMN command_line TEXT")
+        if "source_ip" not in existing_event_cols:
+            cur.execute("ALTER TABLE events ADD COLUMN source_ip TEXT")
+        if "destination_ip" not in existing_event_cols:
+            cur.execute("ALTER TABLE events ADD COLUMN destination_ip TEXT")
+        if "destination_port" not in existing_event_cols:
+            cur.execute("ALTER TABLE events ADD COLUMN destination_port INTEGER")
+        if "logon_type" not in existing_event_cols:
+            cur.execute("ALTER TABLE events ADD COLUMN logon_type TEXT")
+        if "metadata" not in existing_event_cols:
+            cur.execute("ALTER TABLE events ADD COLUMN metadata TEXT")
+        if "status" not in existing_event_cols:
+            cur.execute("ALTER TABLE events ADD COLUMN status TEXT")
 
-        # 9. Safe Schema Migrations for existing databases
         cur.execute("PRAGMA table_info(alerts)")
         existing_alert_cols = [row["name"] for row in cur.fetchall()]
         if "mitre_technique_id" not in existing_alert_cols:
@@ -207,6 +238,13 @@ def init_db(db_path=None):
             cur.execute("ALTER TABLE cyberdna_baselines ADD COLUMN peer_group TEXT DEFAULT 'default'")
         if "short_term_mean" not in existing_baseline_cols:
             cur.execute("ALTER TABLE cyberdna_baselines ADD COLUMN short_term_mean REAL DEFAULT 0.0")
+
+        # 9. Indexes
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(event_timestamp)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_events_device_id ON events(device_id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_events_dedup ON events(device_id, channel, record_id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_status ON alerts(severity, status)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_devices_criticality ON devices(criticality)")
 
         # 10. Seed Default Administrator if no users exist
         cur.execute("SELECT COUNT(*) as count FROM users")
