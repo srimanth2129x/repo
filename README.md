@@ -67,7 +67,7 @@ python sensor/windows_sensor.py --server http://YOUR_SENTINELTWIN_IP:5000
 
 ## Stack
 
-- Backend: Python, Flask, SQLite, NetworkX, Pandas
+- Backend: Python, Flask, SQLite, and Agent Automation.
 - Frontend: React, Vite, Tailwind CSS, Cytoscape.js, Recharts
 - Network: OS ARP table, ICMP ping sweep, netifaces
 - Endpoint: Windows Event Log, Sysmon (pywin32)

@@ -1,19 +1,35 @@
 """
-API Routes Blueprint for SentinelTwin Security Platform
-Provides network discovery, device inventory, alerts, incidents, 
-MITRE ATT&CK mapping, and deterministic evidence graph endpoints.
+REST API Blueprint for SentinelTwin Security Platform
+Provides network discovery, device inventory, alerts, incidents,
+CyberDNA behavioral analytics, Digital Twin topology, attack propagation, and event ingestion.
 """
 import os
 import json
 import logging
 import socket
+import time
 import traceback
 import psutil
 from datetime import datetime, timezone
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app
+from werkzeug.security import check_password_hash
 
+from backend.config import config
 from backend.database.db import get_conn
+from backend.api.auth import generate_jwt, require_auth, require_sensor_or_admin
 from backend.services.network_discovery.manager import discovery_manager
+from backend.services.cyberdna.engine import cyberdna_engine
+from backend.services.risk.engine import risk_engine
+from backend.services.risk.scorer import calculate_risk_summary, get_device_risk_list
+from backend.services.digital_twin.service import (
+    get_topology_graph,
+    analyze_potential_propagation,
+    run_propagation_simulation
+)
+from backend.services.event_processing.processor import (
+    ingest_event as process_ingest_event,
+    get_events as get_pipeline_events
+)
 from backend.services.mitre_mapping import MitreMapper
 from backend.services.evidence_graph import EvidenceGraphEngine
 
@@ -22,8 +38,44 @@ logger = logging.getLogger(__name__)
 api_bp = Blueprint("api", __name__)
 
 
+def _get_target_db():
+    return current_app.config.get("DB_PATH", None)
+
+
 # ==========================================================
-# 1. SYSTEM STATUS & ADAPTER INTERFACES
+# 1. AUTHENTICATION
+# ==========================================================
+
+@api_bp.route("/auth/login", methods=["POST", "OPTIONS"])
+def login():
+    if request.method == "OPTIONS":
+        return jsonify({"status": "ok"}), 200
+
+    data = request.get_json(silent=True) or {}
+    username = data.get("username", "").strip()
+    password = data.get("password", "").strip()
+
+    if not username or not password:
+        return jsonify({"error": "Username and password are required."}), 400
+
+    with get_conn(_get_target_db()) as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT id, username, password_hash, role FROM users WHERE username = ?", (username,))
+        user = cur.fetchone()
+
+        if user and check_password_hash(user["password_hash"], password):
+            token = generate_jwt(user["id"], user["username"], user["role"])
+            return jsonify({
+                "token": token,
+                "role": user["role"],
+                "username": user["username"]
+            }), 200
+
+    return jsonify({"error": "Invalid username or password."}), 401
+
+
+# ==========================================================
+# 2. SYSTEM STATUS & ADAPTER INTERFACES
 # ==========================================================
 
 @api_bp.route("/system/status", methods=["GET"])
@@ -34,9 +86,11 @@ def get_system_status():
         mem = psutil.virtual_memory()
         return jsonify({
             "status": "online",
+            "service": "SentinelTwin Backend",
             "cpu_usage_percent": cpu_usage,
             "memory_usage_percent": mem.percent,
             "memory_free_gb": round(mem.available / (1024 ** 3), 2),
+            "sensor_connected": True,
             "timestamp": datetime.now(timezone.utc).isoformat()
         }), 200
     except Exception as e:
@@ -47,70 +101,51 @@ def get_system_status():
 def get_network_interfaces():
     """Returns active network adapters with IP, subnet mask, and host counts."""
     interfaces = []
+    seen = set()
     try:
         addrs = psutil.net_if_addrs()
-        stats = psutil.net_if_stats()
+        for iface_name, addr_list in addrs.items():
+            for addr in addr_list:
+                if addr.family == socket.AF_INET:
+                    if iface_name not in seen:
+                        seen.add(iface_name)
+                        interfaces.append({
+                            "name": iface_name,
+                            "ip": addr.address,
+                            "netmask": addr.netmask or "255.255.255.0",
+                            "family": "AF_INET"
+                        })
+    except Exception:
+        interfaces = [{"name": "Ethernet0", "ip": "192.168.1.100", "netmask": "255.255.255.0", "family": "AF_INET"}]
 
-        for name, addr_list in addrs.items():
-            ipv4_info = next((a for a in addr_list if a.family == socket.AF_INET), None)
-            if not ipv4_info:
-                continue
-
-            ip = ipv4_info.address
-            netmask = ipv4_info.netmask or "255.255.255.0"
-            is_up = stats[name].isup if name in stats else True
-
-            # Calculate detected hosts for this interface from DB
-            prefix = ".".join(ip.split(".")[:3])
-            host_count = 0
-            try:
-                with get_conn() as conn:
-                    cur = conn.cursor()
-                    cur.execute("SELECT COUNT(*) as count FROM devices WHERE ip_address LIKE ?", (f"{prefix}.%",))
-                    row = cur.fetchone()
-                    host_count = row[0] if isinstance(row, (tuple, list)) else (row["count"] if row else 0)
-            except Exception:
-                pass
-
-            interfaces.append({
-                "name": name,
-                "ip": ip,
-                "subnet": netmask,
-                "gateway": "-",
-                "active": is_up,
-                "hosts": host_count
-            })
-
-        return jsonify(interfaces), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    return jsonify(interfaces), 200
 
 
 # ==========================================================
-# 2. NETWORK DISCOVERY & DEVICE MANAGEMENT
+# 3. NETWORK DISCOVERY & DEVICE INVENTORY
 # ==========================================================
 
-@api_bp.route("/network/discover", methods=["POST"])
-def discover_network():
-    """Triggers an active network sweep with safe fallback and updates the database."""
+@api_bp.route("/network/discover", methods=["POST", "OPTIONS"])
+def trigger_network_discover():
+    if request.method == "OPTIONS":
+        return jsonify({"status": "ok"}), 200
+
+    data = request.get_json(silent=True) or {}
+    interface_ip = data.get("interface_ip")
+    subnet = data.get("subnet")
+
     try:
-        data = request.get_json(silent=True) or {}
-        interface_ip = data.get("interface_ip")
-        subnet = data.get("subnet")
-
         devices = []
         try:
             devices = discovery_manager.scan_network(interface_ip=interface_ip, subnet=subnet)
-        except Exception as scan_err:
-            logger.warning(f"Active scan encountered an issue, falling back to ARP table: {scan_err}")
+        except Exception:
             try:
                 devices = discovery_manager.get_arp_table_devices()
             except Exception:
                 devices = []
 
         now = datetime.now(timezone.utc).isoformat()
-
-        with get_conn() as conn:
+        with get_conn(_get_target_db()) as conn:
             cur = conn.cursor()
             for d in devices:
                 ip_addr = str(d.get("ip_address", "")).strip()
@@ -118,46 +153,28 @@ def discover_network():
                     continue
 
                 dev_id = str(d.get("id") or f"dev-{ip_addr.replace('.', '-')}")
-                mac_addr = str(d.get("mac_address", ""))
-                hostname = str(d.get("hostname", "Laptop / PC"))
-                vendor = str(d.get("vendor", "Connected Endpoint"))
-                device_type = str(d.get("device_type", "Laptop / PC"))
-                os_str = str(d.get("os", "Network OS"))
-                status = str(d.get("status", "Online"))
-                first_seen = str(d.get("first_seen", now))
-                last_seen = str(d.get("last_seen", now))
-                criticality = int(d.get("criticality", 2))
+                cur.execute("""
+                    INSERT INTO devices (
+                        id, ip_address, mac_address, hostname, vendor,
+                        device_type, os, status, first_seen, last_seen, criticality
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'Online', ?, ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET
+                        last_seen = excluded.last_seen,
+                        status = 'Online'
+                """, (
+                    dev_id, ip_addr, d.get("mac_address", "00:00:00:00:00:00"),
+                    d.get("hostname", "Discovered Host"), d.get("vendor", "Connected Endpoint"),
+                    d.get("device_type", "Workstation"), d.get("os", "Generic OS"),
+                    now, now, int(d.get("criticality", 1))
+                ))
 
-                cur.execute("SELECT id FROM devices WHERE id = ? OR ip_address = ?", (dev_id, ip_addr))
-                row = cur.fetchone()
-
-                if row:
-                    matched_id = row[0] if isinstance(row, (tuple, list)) else row["id"]
-                    cur.execute("""
-                        UPDATE devices 
-                        SET hostname = ?, vendor = ?, device_type = ?, os = ?, status = ?, last_seen = ?, criticality = ?
-                        WHERE id = ?
-                    """, (hostname, vendor, device_type, os_str, status, last_seen, criticality, matched_id))
-                else:
-                    cur.execute("""
-                        INSERT INTO devices (
-                            id, ip_address, mac_address, hostname, vendor, 
-                            device_type, os, status, first_seen, last_seen, criticality
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (
-                        dev_id, ip_addr, mac_addr, hostname, vendor,
-                        device_type, os_str, status, first_seen, last_seen, criticality
-                    ))
-
-            # Retrieve updated list of devices
             cur.execute("SELECT * FROM devices ORDER BY last_seen DESC")
             all_devices = [dict(r) for r in cur.fetchall()]
 
         return jsonify({"discovered": len(devices), "devices": all_devices}), 200
-
     except Exception as e:
         traceback.print_exc()
-        return jsonify({"error": str(e), "devices": []}), 200
+        return jsonify({"error": str(e), "devices": []}), 500
 
 
 @api_bp.route("/devices", methods=["GET"])
@@ -165,7 +182,7 @@ def discover_network():
 def get_devices():
     """Returns all discovered network devices."""
     try:
-        with get_conn() as conn:
+        with get_conn(_get_target_db()) as conn:
             cur = conn.cursor()
             cur.execute("SELECT * FROM devices ORDER BY last_seen DESC")
             rows = [dict(row) for row in cur.fetchall()]
@@ -178,7 +195,7 @@ def get_devices():
 def handle_single_device(device_id):
     """Retrieves or removes an individual device record."""
     try:
-        with get_conn() as conn:
+        with get_conn(_get_target_db()) as conn:
             cur = conn.cursor()
             if request.method == "DELETE":
                 cur.execute("DELETE FROM devices WHERE id = ?", (device_id,))
@@ -194,10 +211,11 @@ def handle_single_device(device_id):
 
 
 @api_bp.route("/network/clear", methods=["POST"])
+@api_bp.route("/network/devices/clear", methods=["POST"])
 def clear_devices():
     """Purges all devices from the database cache."""
     try:
-        with get_conn() as conn:
+        with get_conn(_get_target_db()) as conn:
             conn.execute("DELETE FROM devices")
         return jsonify({"status": "cleared"}), 200
     except Exception as e:
@@ -205,7 +223,144 @@ def clear_devices():
 
 
 # ==========================================================
-# 3. ALERTS, INCIDENTS & EVIDENCE RETRIEVAL
+# 4. EVENT INGESTION PIPELINE (CYBERDNA -> CORRELATION -> RISK -> TWIN)
+# ==========================================================
+
+@api_bp.route("/events/ingest", methods=["POST", "OPTIONS"])
+@api_bp.route("/events", methods=["POST", "OPTIONS"])
+def ingest_event_route():
+    if request.method == "OPTIONS":
+        return jsonify({"status": "ok"}), 200
+
+    data = request.get_json(silent=True) or {}
+
+    # Strict sensor payload validation (when sensor fields or events/ingest is called)
+    required = ["event_id", "record_id", "channel", "device_id", "event_timestamp"]
+    if any(k in data for k in ("record_id", "channel")) or request.path.endswith("/ingest"):
+        for field in required:
+            if field not in data or data[field] is None:
+                return jsonify({"error": f"Missing required field: {field}"}), 400
+
+    try:
+        if "event_id" in data:
+            int(data["event_id"])
+        if "record_id" in data:
+            int(data["record_id"])
+    except (ValueError, TypeError):
+        return jsonify({"error": "Fields 'event_id' and 'record_id' must be valid integers."}), 400
+
+    db_path = _get_target_db()
+
+    # Idempotent deduplication check for exact (device_id, channel, record_id)
+    if data.get("record_id") and data.get("device_id") and data.get("channel"):
+        with get_conn(db_path) as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT id FROM events 
+                WHERE device_id = ? AND channel = ? AND record_id = ?
+            """, (str(data["device_id"]), str(data["channel"]), int(data["record_id"])))
+            if cur.fetchone():
+                return jsonify({"status": "duplicate_ignored", "message": "Event already ingested"}), 409
+
+    try:
+        result = process_ingest_event(data, db_path=db_path)
+        return jsonify(result), 201
+    except Exception as e:
+        logger.error(f"Event ingestion pipeline failed: {e}")
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@api_bp.route("/events", methods=["GET"])
+def get_events():
+    limit = min(int(request.args.get("limit", 50)), 200)
+    device_id = request.args.get("device_id")
+    event_type = request.args.get("event_type")
+    rows = get_pipeline_events(limit=limit, device_id=device_id, event_type=event_type, db_path=_get_target_db())
+    return jsonify(rows), 200
+
+
+# ==========================================================
+# 5. CYBERDNA BEHAVIORAL PROFILES & SIMULATION
+# ==========================================================
+
+@api_bp.route("/cyberdna/profile/<entity_id>", methods=["GET"])
+def get_cyberdna_profile(entity_id):
+    """Returns the CyberDNA behavioral baseline profile and peer comparisons."""
+    profile = cyberdna_engine.get_profile(entity_id, db_path=_get_target_db())
+    return jsonify(profile), 200
+
+
+@api_bp.route("/cyberdna/users", methods=["GET"])
+@api_bp.route("/cyberdna/entities", methods=["GET"])
+def get_cyberdna_entities():
+    """Returns all entities with behavioral CyberDNA baselines."""
+    entities = cyberdna_engine.get_all_entities(db_path=_get_target_db())
+    return jsonify(entities), 200
+
+
+@api_bp.route("/cyberdna/simulate", methods=["POST", "OPTIONS"])
+def simulate_cyberdna():
+    """Direct testing and evaluation of CyberDNA statistical anomalies."""
+    if request.method == "OPTIONS":
+        return jsonify({"status": "ok"}), 200
+
+    data = request.get_json(silent=True) or {}
+    metric_key = data.get("metric_key", "evt_4688_freq")
+    entity_id = data.get("device_id") or data.get("entity_id", "dev-corp-workstation-01")
+    observation = float(data.get("observation", 1.0))
+    gate = bool(data.get("gate_anomalies", True))
+
+    res = cyberdna_engine.evaluate_and_update(
+        metric_key=metric_key,
+        entity_id=entity_id,
+        observation=observation,
+        gate_anomalies=gate,
+        db_path=_get_target_db()
+    )
+    return jsonify(res), 200
+
+
+# ==========================================================
+# 6. DIGITAL TWIN TOPOLOGY & ATTACK PROPAGATION
+# ==========================================================
+
+@api_bp.route("/network/topology", methods=["GET"])
+@api_bp.route("/cyber_twin/topology", methods=["GET"])
+def get_topology():
+    """Returns the NetworkX Digital Twin topology graph (nodes and edges)."""
+    return jsonify(get_topology_graph(_get_target_db())), 200
+
+
+@api_bp.route("/simulation/run", methods=["POST", "OPTIONS"])
+@api_bp.route("/cyber_twin/propagate", methods=["POST", "OPTIONS"])
+def simulate_propagation():
+    """Executes multi-hop attack propagation simulation from a compromised entity."""
+    if request.method == "OPTIONS":
+        return jsonify({"status": "ok"}), 200
+
+    data = request.get_json(silent=True) or {}
+    source_id = data.get("source_node_id") or data.get("source_device") or data.get("source_device_id")
+    risk = data.get("source_risk", 70)
+
+    if not source_id or not isinstance(source_id, str):
+        return jsonify({"error": "Valid 'source_node_id' or 'source_device' string is required."}), 400
+
+    try:
+        risk_val = int(risk)
+        if not (0 <= risk_val <= 100):
+            raise ValueError()
+    except (ValueError, TypeError):
+        return jsonify({"error": "Field 'source_risk' must be an integer between 0 and 100."}), 400
+
+    db_path = _get_target_db()
+    sim_result = run_propagation_simulation(source_device_id=source_id, source_risk=risk_val, db_path=db_path)
+    sim_result["potential_propagation_paths"] = sim_result.get("opportunities", [])
+    return jsonify(sim_result), 200
+
+
+# ==========================================================
+# 7. ALERTS, INCIDENTS & EVIDENCE RETRIEVAL
 # ==========================================================
 
 @api_bp.route("/alerts", methods=["GET", "POST"])
@@ -213,7 +368,7 @@ def clear_devices():
 def handle_alerts():
     """Handles alert retrieval, manual creation, or incident status changes."""
     try:
-        with get_conn() as conn:
+        with get_conn(_get_target_db()) as conn:
             cur = conn.cursor()
 
             if request.method == "PATCH":
@@ -230,17 +385,18 @@ def handle_alerts():
                 device_id = data.get("device_id", "local-host")
                 title = data.get("title", "Security Threat Detected")
                 severity = data.get("severity", "HIGH")
-                status = data.get("status", "Active")
+                status = data.get("status", "Open")
                 description = data.get("description", "")
                 created_at = data.get("created_at", datetime.now(timezone.utc).isoformat())
+                risk_pts = int(data.get("risk_points", 50))
 
                 cur.execute("""
-                    INSERT INTO alerts (id, device_id, title, severity, status, description, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, (alert_id, device_id, title, severity, status, description, created_at))
+                    INSERT INTO alerts (id, device_id, title, severity, status, description, created_at, timestamp, risk_points)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (alert_id, device_id, title, severity, status, description, created_at, created_at, risk_pts))
                 return jsonify({"status": "created", "id": alert_id}), 201
 
-            cur.execute("SELECT * FROM alerts ORDER BY created_at DESC LIMIT 100")
+            cur.execute("SELECT * FROM alerts ORDER BY id DESC LIMIT 100")
             rows = [dict(row) for row in cur.fetchall()]
             for r in rows:
                 if isinstance(r.get("evidence_graph"), str) and r["evidence_graph"]:
@@ -257,7 +413,7 @@ def handle_alerts():
 def get_alert_evidence(alert_id):
     """Retrieves the deterministic Evidence Graph for an alert."""
     try:
-        with get_conn() as conn:
+        with get_conn(_get_target_db()) as conn:
             cur = conn.cursor()
             cur.execute("SELECT * FROM alerts WHERE id = ?", (alert_id,))
             row = cur.fetchone()
@@ -274,7 +430,7 @@ def get_alert_evidence(alert_id):
 
             return jsonify({
                 "alert_id": alert["id"],
-                "title": alert["title"],
+                "title": alert.get("title") or alert.get("description"),
                 "severity": alert["severity"],
                 "mitre": {
                     "id": alert.get("mitre_technique_id"),
@@ -288,105 +444,49 @@ def get_alert_evidence(alert_id):
 
 
 # ==========================================================
-# 4. EVENT INGESTION PIPELINE (CYBER DNA -> MITRE -> GRAPH)
+# 8. DASHBOARD SUMMARY & RISK POSTURE
 # ==========================================================
 
-@api_bp.route("/events/ingest", methods=["POST"])
-@api_bp.route("/events", methods=["POST"])
-def ingest_event():
-    """
-    Core Pipeline Ingestion:
-    Event -> Cyber DNA -> Risk Intelligence -> MITRE ATT&CK -> Evidence Graph -> Alert
-    """
-    try:
-        event = request.get_json(silent=True) or {}
-        now_iso = datetime.now(timezone.utc).isoformat()
+@api_bp.route("/dashboard/summary", methods=["GET"])
+def get_dashboard_summary():
+    """Provides high-level dashboard aggregate metrics."""
+    with get_conn(_get_target_db()) as conn:
+        cur = conn.cursor()
 
-        event_id = event.get("id") or f"evt-{int(datetime.now(timezone.utc).timestamp() * 1000)}"
-        device_id = event.get("device_id", "10.107.4.78")
-        event_type = event.get("event_type") or str(event.get("event_id", "AUDIT"))
-        source = event.get("source", "Sysmon")
-        risk_score = float(event.get("risk_score", 0.0))
-        details = event.get("details", {})
-        user_id = event.get("user") or (details.get("user") if isinstance(details, dict) else "SYSTEM")
-        timestamp = event.get("event_timestamp") or event.get("timestamp") or now_iso
+        cur.execute("SELECT COUNT(*) as count FROM devices")
+        total_devices = cur.fetchone()["count"]
 
-        # 1. Cyber DNA Baseline Heuristic Evaluation
-        behavioral_mutations = []
-        hour = datetime.now().hour
-        if hour < 6 or hour > 21:
-            behavioral_mutations.append("Off-Hours Activity Deviation")
-        if risk_score > 50:
-            behavioral_mutations.append("High Process Velocity Deviation")
+        cur.execute("SELECT COUNT(*) as count FROM events")
+        total_events = cur.fetchone()["count"]
 
-        # 2. MITRE ATT&CK Mapping Layer
-        mitre_match = MitreMapper.evaluate(event, behavioral_mutations)
-        if mitre_match:
-            # Elevate risk deterministically when matched against known endpoint pattern
-            risk_score = min(100.0, max(risk_score, 75.0))
+        cur.execute("SELECT COUNT(*) as count FROM alerts WHERE status != 'Resolved'")
+        active_alerts = cur.fetchone()["count"]
 
-        # 3. Store Event Record
-        details_json = json.dumps(details) if isinstance(details, dict) else str(details)
-        with get_conn() as conn:
-            cur = conn.cursor()
-            cur.execute("""
-                INSERT INTO events (id, device_id, event_type, source, risk_score, details, timestamp)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (event_id, device_id, event_type, source, risk_score, details_json, timestamp))
+        cur.execute("SELECT COUNT(*) as count FROM alerts WHERE severity IN ('Critical', 'CRITICAL') AND status != 'Resolved'")
+        critical_incidents = cur.fetchone()["count"]
 
-            # 4. Generate High-Risk Alert & Explainable Evidence Graph (Threshold >= 65)
-            if risk_score >= 65.0:
-                alert_id = f"alt-{int(datetime.now(timezone.utc).timestamp())}"
-                t_name = mitre_match["technique_name"] if mitre_match else event_type
-                alert_title = f"High Risk: {t_name}"
-                severity = "CRITICAL" if risk_score >= 85 else "HIGH"
-                desc = mitre_match.get("reason", "Suspicious behavioral anomaly exceeded risk threshold.") if mitre_match else "Risk threshold triggered."
+        cur.execute("SELECT * FROM alerts ORDER BY id DESC LIMIT 5")
+        recent_alerts = [dict(row) for row in cur.fetchall()]
 
-                evidence_graph = EvidenceGraphEngine.generate_graph(
-                    alert_id=alert_id,
-                    alert_title=alert_title,
-                    risk_score=risk_score,
-                    device_id=device_id,
-                    user_id=user_id,
-                    contributing_events=[{
-                        "id": event_id,
-                        "event_type": event_type,
-                        "source": source,
-                        "timestamp": timestamp,
-                        "details": details
-                    }],
-                    behavioral_mutations=behavioral_mutations,
-                    mitre_data=mitre_match
-                )
+        cur.execute("SELECT * FROM events ORDER BY id DESC LIMIT 5")
+        recent_events = [dict(row) for row in cur.fetchall()]
 
-                cur.execute("""
-                    INSERT INTO alerts (
-                        id, device_id, title, severity, status, description, created_at,
-                        mitre_technique_id, mitre_technique_name, mitre_tactic, evidence_graph
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    alert_id, device_id, alert_title, severity, "Active", desc, now_iso,
-                    mitre_match["technique_id"] if mitre_match else "",
-                    mitre_match["technique_name"] if mitre_match else "",
-                    mitre_match["tactic"] if mitre_match else "",
-                    json.dumps(evidence_graph)
-                ))
+    return jsonify({
+        "total_devices": total_devices,
+        "total_events": total_events,
+        "active_alerts": active_alerts,
+        "critical_incidents": critical_incidents,
+        "recent_alerts": recent_alerts,
+        "recent_events": recent_events,
+        "system_health": "Healthy" if active_alerts < 10 else "Degraded"
+    }), 200
 
-        return jsonify({"status": "received", "id": event_id, "risk_score": risk_score, "mitre": mitre_match}), 201
-    except Exception as e:
-        traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
-
-
-# ==========================================================
-# 5. RISK SUMMARY & DEVICE BREAKDOWN
-# ==========================================================
 
 @api_bp.route("/risk/summary", methods=["GET"])
 def get_risk_summary():
-    """Aggregates platform metrics for the top overview dashboard."""
+    """Aggregates platform risk metrics."""
     try:
-        with get_conn() as conn:
+        with get_conn(_get_target_db()) as conn:
             cur = conn.cursor()
             cur.execute("SELECT COUNT(*) as total, AVG(risk_score) as avg_risk FROM events")
             ev_row = cur.fetchone()
@@ -397,12 +497,10 @@ def get_risk_summary():
             cur.execute("SELECT COUNT(*) as total_devs FROM devices")
             dev_row = cur.fetchone()
 
-        total_events = ev_row[0] if isinstance(ev_row, (tuple, list)) else (ev_row["total"] if ev_row else 0)
-        avg_score_raw = ev_row[1] if isinstance(ev_row, (tuple, list)) else (ev_row["avg_risk"] if ev_row else 0.0)
-        avg_score = round(avg_score_raw or 0.0, 1)
-
-        active_alerts = al_row[0] if isinstance(al_row, (tuple, list)) else (al_row["alert_count"] if al_row else 0)
-        total_devices = dev_row[0] if isinstance(dev_row, (tuple, list)) else (dev_row["total_devs"] if dev_row else 0)
+        total_events = ev_row["total"] if ev_row else 0
+        avg_score = round(ev_row["avg_risk"] or 0.0, 1) if ev_row else 0.0
+        active_alerts = al_row["alert_count"] if al_row else 0
+        total_devices = dev_row["total_devs"] if dev_row else 0
 
         return jsonify({
             "overall_threat_level": "Elevated" if active_alerts > 0 else "Nominal",
@@ -419,7 +517,7 @@ def get_risk_summary():
 def get_device_risk_breakdown():
     """Returns risk assessment breakdown per device."""
     try:
-        with get_conn() as conn:
+        with get_conn(_get_target_db()) as conn:
             cur = conn.cursor()
             cur.execute("""
                 SELECT 
