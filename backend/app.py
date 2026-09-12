@@ -22,7 +22,7 @@ def create_app(db_path: str = None) -> Flask:
         resources={r"/api/*": {"origins": config.CORS_ORIGINS}},
         supports_credentials=True,
         methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        allow_headers=["Content-Type", "Authorization", "X-Sensor-Token"]
+        allow_headers=["Content-Type", "Authorization", "X-Sensor-Token", "X-Device-Id", "X-Transport-Mode"]
     )
 
     init_db(target_db)

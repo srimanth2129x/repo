@@ -61,7 +61,11 @@ def init_db(db_path=None):
                 discovery_method TEXT,
                 criticality INTEGER DEFAULT 1,
                 risk_score REAL DEFAULT 0.0,
-                risk_level TEXT DEFAULT 'ADAPTIVE'
+                risk_level TEXT DEFAULT 'ADAPTIVE',
+                auth_status TEXT DEFAULT 'AUTHORIZED',
+                transport_mode TEXT DEFAULT 'DIRECT',
+                sensor_token_hash TEXT,
+                last_event_received TEXT
             )
         """)
 
@@ -124,7 +128,6 @@ def init_db(db_path=None):
                 event_type TEXT,
                 source TEXT DEFAULT 'Sysmon',
                 status TEXT,
-                UNIQUE (device_id, channel, record_id),
                 FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
             )
         """)
@@ -165,7 +168,18 @@ def init_db(db_path=None):
             )
         """)
 
-        # 8. Safe Schema Migrations for existing databases
+        # 8. Processed Batches Table (Duplicate-safe batch tracking)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS processed_batches (
+                batch_id TEXT PRIMARY KEY,
+                device_id TEXT NOT NULL,
+                processed_at TEXT NOT NULL,
+                event_count INTEGER NOT NULL DEFAULT 0,
+                transport TEXT DEFAULT 'DIRECT'
+            )
+        """)
+
+        # 9. Safe Schema Migrations for existing databases
         cur.execute("PRAGMA table_info(events)")
         existing_event_cols = [row["name"] for row in cur.fetchall()]
         if "channel" not in existing_event_cols:
@@ -203,6 +217,12 @@ def init_db(db_path=None):
             cur.execute("ALTER TABLE events ADD COLUMN metadata TEXT")
         if "status" not in existing_event_cols:
             cur.execute("ALTER TABLE events ADD COLUMN status TEXT")
+        if "details" not in existing_event_cols:
+            cur.execute("ALTER TABLE events ADD COLUMN details TEXT")
+        if "event_type" not in existing_event_cols:
+            cur.execute("ALTER TABLE events ADD COLUMN event_type TEXT")
+        if "source" not in existing_event_cols:
+            cur.execute("ALTER TABLE events ADD COLUMN source TEXT DEFAULT 'Sysmon'")
 
         cur.execute("PRAGMA table_info(alerts)")
         existing_alert_cols = [row["name"] for row in cur.fetchall()]
@@ -231,6 +251,14 @@ def init_db(db_path=None):
             cur.execute("ALTER TABLE devices ADD COLUMN risk_score REAL DEFAULT 0.0")
         if "risk_level" not in existing_device_cols:
             cur.execute("ALTER TABLE devices ADD COLUMN risk_level TEXT DEFAULT 'ADAPTIVE'")
+        if "auth_status" not in existing_device_cols:
+            cur.execute("ALTER TABLE devices ADD COLUMN auth_status TEXT DEFAULT 'AUTHORIZED'")
+        if "transport_mode" not in existing_device_cols:
+            cur.execute("ALTER TABLE devices ADD COLUMN transport_mode TEXT DEFAULT 'DIRECT'")
+        if "sensor_token_hash" not in existing_device_cols:
+            cur.execute("ALTER TABLE devices ADD COLUMN sensor_token_hash TEXT")
+        if "last_event_received" not in existing_device_cols:
+            cur.execute("ALTER TABLE devices ADD COLUMN last_event_received TEXT")
 
         cur.execute("PRAGMA table_info(cyberdna_baselines)")
         existing_baseline_cols = [row["name"] for row in cur.fetchall()]
@@ -239,10 +267,10 @@ def init_db(db_path=None):
         if "short_term_mean" not in existing_baseline_cols:
             cur.execute("ALTER TABLE cyberdna_baselines ADD COLUMN short_term_mean REAL DEFAULT 0.0")
 
-        # 9. Indexes
+        # 10. Indexes
         cur.execute("CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(event_timestamp)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_events_device_id ON events(device_id)")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_events_dedup ON events(device_id, channel, record_id)")
+        cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_events_device_channel_record ON events(device_id, channel, record_id) WHERE record_id IS NOT NULL AND record_id > 0")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_status ON alerts(severity, status)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_devices_criticality ON devices(criticality)")
 

@@ -11,8 +11,17 @@ import {
   Laptop,
   Wifi,
   Smartphone,
+  Share2,
+  Layers,
+  ArrowRight,
+  CheckCircle2,
+  X,
+  Activity,
+  Cpu,
+  RefreshCw,
 } from 'lucide-react'
-import { Card, SectionHeader, Spinner, EmptyState, RiskBadge } from '../components/ui/Card'
+import { Card, SectionHeader, Spinner, EmptyState } from '../components/ui/Card'
+import { RiskBadge, StatusBadge, SensorBadge, CategoryBadge } from '../components/ui/Badge'
 import { getTopology, runSimulation } from '../api/client'
 import { getRiskColor } from '../utils/risk'
 
@@ -21,6 +30,7 @@ export function CyberTwin() {
   const [edges, setEdges] = useState([])
   const [loading, setLoading] = useState(true)
   const [selectedNode, setSelectedNode] = useState(null)
+  const [drawerOpen, setDrawerOpen] = useState(true)
   const [simSource, setSimSource] = useState('')
   const [simResults, setSimResults] = useState(null)
   const [simulating, setSimulating] = useState(false)
@@ -32,7 +42,7 @@ export function CyberTwin() {
       setLoading(true)
       const res = await getTopology()
       const data = res.data || {}
-      
+
       const rawNodes = Array.isArray(data.nodes) ? data.nodes : []
       const rawEdges = Array.isArray(data.edges) ? data.edges : []
 
@@ -53,13 +63,14 @@ export function CyberTwin() {
           sensor_connected: Boolean(d.sensor_connected ?? n.sensor_connected),
         }
       })
-      const safeEdges = rawEdges.map((e) => {
+
+      const safeEdges = rawEdges.map((e, idx) => {
         const d = e.data || e
         return {
-          ...d,
-          ...e,
+          id: d.id || e.id || `edge-${idx}`,
           source: d.source || e.source,
           target: d.target || e.target,
+          relationship: d.relationship || d.relationship_type || 'network_reachability',
         }
       })
 
@@ -107,58 +118,80 @@ export function CyberTwin() {
   const getDeviceIcon = (type) => {
     const t = String(type || '').toLowerCase()
     if (t.includes('router') || t.includes('gateway')) return <Wifi className="w-4 h-4 text-cyan-400" />
-    if (t.includes('server')) return <Server className="w-4 h-4 text-indigo-400" />
     if (t.includes('mobile') || t.includes('phone')) return <Smartphone className="w-4 h-4 text-emerald-400" />
+    if (t.includes('server')) return <Server className="w-4 h-4 text-indigo-400" />
     return <Laptop className="w-4 h-4 text-slate-300" />
   }
 
-  if (loading) return <Spinner />
+  if (loading && nodes.length === 0) {
+    return <Spinner message="Assembling Digital Twin NetworkX Graph..." />
+  }
+
+  // Find Gateway & Connected Nodes for topology positioning
+  const gatewayNode = nodes.find((n) => {
+    const t = (n.device_type || '').toLowerCase()
+    const h = (n.hostname || '').toLowerCase()
+    return t.includes('router') || t.includes('gateway') || h.includes('gateway') || h.includes('router')
+  }) || nodes[0]
+
+  const endpointNodes = nodes.filter((n) => n.id !== gatewayNode?.id)
+
+  const compromisedPath = simResults?.worst_path || []
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-4 bg-navy-900/60 p-4 border border-slate-800 rounded">
+      {/* Header Banner */}
+      <div className="flex flex-wrap items-center justify-between gap-4 bg-slate-900/70 backdrop-blur-md p-4 border border-slate-800/80 rounded-lg">
         <div className="flex items-center gap-3">
-          <Shield className="w-5 h-5 text-cyan-400" />
+          <div className="p-2 rounded bg-cyan-950/60 border border-cyan-800/70 text-cyan-400 shadow-[0_0_12px_rgba(6,182,212,0.15)]">
+            <Share2 className="w-5 h-5" />
+          </div>
           <div>
-            <h2 className="text-sm font-mono font-bold text-slate-100 uppercase tracking-wider">
-              Network Digital Twin & Attack Simulation
-            </h2>
-            <p className="text-[11px] font-mono text-slate-400">
-              Graph-inferred posture and blast-radius path modeling
+            <div className="flex items-center gap-2">
+              <h2 className="text-sm font-mono font-bold text-slate-100 uppercase tracking-wider">
+                Network Digital Twin & Lateral Attack Simulation
+              </h2>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-950/80 border border-cyan-800/80 text-cyan-300 font-semibold">
+                NETWORKX BFS ENGINE
+              </span>
+            </div>
+            <p className="text-[11px] font-mono text-slate-400 mt-0.5">
+              Live graph modeling, gateway star-topology inference, and blast-radius path simulation
             </p>
           </div>
         </div>
 
+        {/* Filters & Canvas Zoom */}
         <div className="flex items-center gap-2">
           <select
             value={filterType}
             onChange={(e) => setFilterType(e.target.value)}
-            className="bg-navy-950 border border-slate-700 text-slate-200 text-xs font-mono rounded px-2.5 py-1.5 focus:outline-none focus:border-cyan-500"
+            className="bg-slate-950 border border-slate-800 text-slate-200 text-xs font-mono rounded px-2.5 py-1.5 focus:outline-none focus:border-cyan-500"
           >
-            <option value="ALL">All Nodes ({nodes.length})</option>
-            <option value="ROUTER">Routers / Gateways</option>
-            <option value="LAPTOP">Laptops / PCs</option>
-            <option value="MOBILE">Mobile Devices</option>
-            <option value="SERVER">Servers</option>
+            <option value="ALL">All Assets ({nodes.length})</option>
+            <option value="ROUTER">Gateways ({nodes.filter(n => (n.device_type || '').toLowerCase().includes('router') || (n.device_type || '').toLowerCase().includes('gateway')).length})</option>
+            <option value="LAPTOP">Laptops / PCs ({nodes.filter(n => (n.device_type || '').toLowerCase().includes('laptop') || (n.device_type || '').toLowerCase().includes('pc')).length})</option>
+            <option value="MOBILE">Mobile Devices ({nodes.filter(n => (n.device_type || '').toLowerCase().includes('mobile')).length})</option>
+            <option value="SERVER">Servers ({nodes.filter(n => (n.device_type || '').toLowerCase().includes('server')).length})</option>
           </select>
 
           <button
-            onClick={() => setZoom((z) => Math.min(z + 0.1, 1.6))}
-            className="p-1.5 bg-navy-950 border border-slate-700 rounded text-slate-300 hover:text-cyan-400"
+            onClick={() => setZoom((z) => Math.min(z + 0.1, 1.5))}
+            className="p-1.5 bg-slate-900 border border-slate-800 rounded text-slate-400 hover:text-cyan-400 transition"
             title="Zoom In"
           >
             <ZoomIn className="w-4 h-4" />
           </button>
           <button
-            onClick={() => setZoom((z) => Math.max(z - 0.1, 0.6))}
-            className="p-1.5 bg-navy-950 border border-slate-700 rounded text-slate-300 hover:text-cyan-400"
+            onClick={() => setZoom((z) => Math.max(z - 0.1, 0.7))}
+            className="p-1.5 bg-slate-900 border border-slate-800 rounded text-slate-400 hover:text-cyan-400 transition"
             title="Zoom Out"
           >
             <ZoomOut className="w-4 h-4" />
           </button>
           <button
             onClick={() => setZoom(1)}
-            className="p-1.5 bg-navy-950 border border-slate-700 rounded text-slate-300 hover:text-cyan-400"
+            className="p-1.5 bg-slate-900 border border-slate-800 rounded text-slate-400 hover:text-cyan-400 transition"
             title="Reset Zoom"
           >
             <Maximize2 className="w-4 h-4" />
@@ -166,151 +199,208 @@ export function CyberTwin() {
         </div>
       </div>
 
+      {/* Main Grid: Canvas + Telemetry Drawer */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left 2 Cols: Interactive Graph Canvas */}
         <div className="lg:col-span-2 space-y-4">
-          <Card className="min-h-[480px] relative overflow-hidden bg-navy-950/90 border-slate-800">
-            <SectionHeader title="Active Graph Canvas" subtitle="Inferred node connectivity map" />
+          <Card className="min-h-[500px] relative overflow-hidden bg-slate-950/90 border-slate-800/90 flex flex-col justify-between">
+            <SectionHeader
+              title="Active Digital Twin Topology Canvas"
+              subtitle="NetworkX node-connectivity model & blast-radius reachability"
+              action={
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-400">
+                  {nodes.length} Nodes · {edges.length} Edges
+                </span>
+              }
+            />
 
             {nodes.length === 0 ? (
-              <EmptyState message="No network nodes discovered yet. Run a scan from the Network tab." />
+              <EmptyState
+                icon={<Share2 className="w-6 h-6 text-slate-600" />}
+                title="No Network Nodes Discovered"
+                message="Run network discovery to populate the digital twin graph with local assets."
+              />
             ) : (
               <div
-                className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 p-4 transition-transform duration-200"
-                style={{ transform: `scale(${zoom})`, transformOrigin: 'top left' }}
+                className="relative py-6 px-4 transition-transform duration-200 flex-1 flex flex-col justify-center items-center"
+                style={{ transform: `scale(${zoom})`, transformOrigin: 'top center' }}
               >
-                {filteredNodes.map((node) => {
-                  const isSelected = selectedNode?.id === node.id
-                  const isSimSource = simSource === node.id
-                  const isCompromised =
-                    simResults?.worst_path && simResults.worst_path.includes(node.id)
-                  const colors = getRiskColor(node.risk_level)
-
-                  return (
+                {/* Visual Gateway Center Node */}
+                {gatewayNode && (
+                  <div className="flex flex-col items-center mb-8 relative">
                     <div
-                      key={node.id || Math.random()}
                       onClick={() => {
-                        setSelectedNode(node)
-                        setSimSource(node.id || '')
+                        setSelectedNode(gatewayNode)
+                        setSimSource(gatewayNode.id)
+                        setDrawerOpen(true)
                       }}
-                      className={`p-3 rounded border cursor-pointer transition-all duration-150 flex flex-col justify-between ${
-                        isSelected
-                          ? 'border-cyan-400 bg-cyan-950/40 shadow-lg shadow-cyan-950/50'
-                          : isCompromised
-                          ? 'border-red-500 bg-red-950/40 animate-pulse'
-                          : 'border-slate-800 bg-navy-900/60 hover:border-slate-700'
+                      className={`p-3.5 rounded-xl border cursor-pointer transition-all duration-200 min-w-[200px] text-center ${
+                        selectedNode?.id === gatewayNode.id
+                          ? 'bg-cyan-950/60 border-cyan-400 shadow-[0_0_18px_rgba(6,182,212,0.3)] ring-1 ring-cyan-400'
+                          : compromisedPath.includes(gatewayNode.id)
+                          ? 'bg-rose-950/70 border-rose-500 shadow-[0_0_18px_rgba(244,63,94,0.4)] animate-pulse'
+                          : 'bg-slate-900/90 border-slate-700 hover:border-cyan-600'
                       }`}
                     >
-                      <div className="flex items-center justify-between mb-2">
-                        {getDeviceIcon(node.device_type)}
-                        <span
-                          className="w-2 h-2 rounded-full"
-                          style={{ backgroundColor: colors.border }}
-                        />
+                      <div className="flex items-center justify-between mb-1.5">
+                        <Wifi className="w-4 h-4 text-cyan-400" />
+                        <span className="text-[9px] font-mono font-bold px-1.5 py-0.2 rounded bg-cyan-950 text-cyan-300 border border-cyan-800 uppercase">
+                          GATEWAY HUB
+                        </span>
                       </div>
-
-                      <div className="text-xs font-mono font-bold text-slate-100 truncate">
-                        {node.hostname || 'Unknown Host'}
+                      <div className="font-mono font-bold text-xs text-slate-100 truncate">
+                        {gatewayNode.hostname}
                       </div>
-                      <div className="text-[10px] font-mono text-slate-400 truncate">
-                        {node.ip_address || '0.0.0.0'}
+                      <div className="font-mono text-[11px] text-cyan-400 mt-0.5">
+                        {gatewayNode.ip_address}
                       </div>
-
-                      <div className="mt-2 flex items-center justify-between text-[10px] font-mono">
-                        <span className="text-slate-400">{node.device_type || 'Node'}</span>
-                        {isSimSource && (
-                          <span className="text-cyan-400 font-bold text-[9px] uppercase">[Origin]</span>
-                        )}
+                      <div className="text-[10px] text-slate-500 font-mono mt-1">
+                        Criticality Weight: {gatewayNode.criticality || 4}x
                       </div>
                     </div>
-                  )
-                })}
+
+                    {/* Central Vertical Connector Line */}
+                    <div className="w-0.5 h-8 bg-gradient-to-b from-cyan-500 to-slate-700 mt-1" />
+                  </div>
+                )}
+
+                {/* Subnet Endpoints Row */}
+                <div className="flex flex-wrap items-center justify-center gap-6 w-full pt-2">
+                  {endpointNodes.map((node) => {
+                    const isSelected = selectedNode?.id === node.id
+                    const isSimOrigin = simSource === node.id
+                    const isPathCompromised = compromisedPath.includes(node.id)
+
+                    return (
+                      <div
+                        key={node.id}
+                        onClick={() => {
+                          setSelectedNode(node)
+                          setSimSource(node.id)
+                          setDrawerOpen(true)
+                        }}
+                        className={`p-3 rounded-lg border cursor-pointer transition-all duration-200 min-w-[170px] max-w-[210px] flex-1 text-left ${
+                          isSelected
+                            ? 'bg-cyan-950/60 border-cyan-400 shadow-[0_0_15px_rgba(6,182,212,0.25)] ring-1 ring-cyan-400'
+                            : isPathCompromised
+                            ? 'bg-rose-950/70 border-rose-500 shadow-[0_0_15px_rgba(244,63,94,0.35)] animate-pulse'
+                            : 'bg-slate-900/80 border-slate-800 hover:border-slate-700'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          {getDeviceIcon(node.device_type)}
+                          <RiskBadge level={node.risk_level || 'ADAPTIVE'} />
+                        </div>
+
+                        <div className="text-xs font-mono font-bold text-slate-100 truncate">
+                          {node.hostname}
+                        </div>
+                        <div className="text-[11px] font-mono text-cyan-400 truncate">
+                          {node.ip_address}
+                        </div>
+
+                        <div className="mt-2.5 pt-2 border-t border-slate-800/80 flex items-center justify-between text-[10px] font-mono">
+                          <span className="text-slate-400 truncate">{node.device_type}</span>
+                          {isSimOrigin && (
+                            <span className="text-cyan-400 font-bold uppercase tracking-wide bg-cyan-950 px-1 py-0.2 rounded border border-cyan-800 text-[9px]">
+                              [ORIGIN]
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Simulation Results Banner */}
+            {simResults && (
+              <div className="border-t border-rose-900/60 bg-rose-950/30 p-4 rounded-b-lg space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 text-rose-400" />
+                    <h4 className="text-xs font-mono font-bold text-rose-300 uppercase tracking-wider">
+                      Lateral Movement Blast-Radius Findings
+                    </h4>
+                  </div>
+                  <button
+                    onClick={handleResetSimulation}
+                    className="text-xs font-mono text-slate-400 hover:text-slate-200 flex items-center gap-1"
+                  >
+                    <RotateCcw className="w-3 h-3" /> Clear
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono">
+                  <div className="bg-slate-950/80 p-2 rounded border border-slate-800">
+                    <span className="text-[10px] text-slate-500 uppercase block">Reachability</span>
+                    <span className="text-slate-200 font-bold">
+                      {simResults.reachable_count ?? simResults.target_devices?.length ?? 0} Assets
+                    </span>
+                  </div>
+                  <div className="bg-slate-950/80 p-2 rounded border border-slate-800">
+                    <span className="text-[10px] text-slate-500 uppercase block">Max Depth</span>
+                    <span className="text-slate-200 font-bold">{simResults.max_depth ?? simResults.hop_count ?? 1} Hops</span>
+                  </div>
+                  <div className="bg-slate-950/80 p-2 rounded border border-slate-800">
+                    <span className="text-[10px] text-slate-500 uppercase block">Critical Assets</span>
+                    <span className="text-amber-400 font-bold">
+                      {simResults.critical_assets?.length ?? 0} At Risk
+                    </span>
+                  </div>
+                  <div className="bg-slate-950/80 p-2 rounded border border-slate-800">
+                    <span className="text-[10px] text-slate-500 uppercase block">Estimated Impact</span>
+                    <span className="text-rose-400 font-bold">{simResults.estimated_impact || 'MEDIUM'}</span>
+                  </div>
+                </div>
+
+                {simResults.worst_path && simResults.worst_path.length > 0 && (
+                  <div className="bg-slate-950/90 p-2.5 rounded border border-slate-800">
+                    <span className="text-[10px] font-mono text-slate-400 uppercase block mb-1.5 font-semibold">
+                      Worst-Case Lateral Attack Vector Path:
+                    </span>
+                    <div className="flex items-center flex-wrap gap-2 text-xs font-mono">
+                      {simResults.worst_path.map((nid, i) => (
+                        <React.Fragment key={nid}>
+                          <span className="px-2 py-0.5 rounded bg-rose-950 text-rose-300 border border-rose-800 font-bold">
+                            {nid}
+                          </span>
+                          {i < simResults.worst_path.length - 1 && (
+                            <span className="text-rose-500 font-bold animate-pulse">➔</span>
+                          )}
+                        </React.Fragment>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </Card>
-
-          {simResults && (
-            <Card className="border-red-900/50 bg-red-950/20">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <AlertTriangle className="w-4 h-4 text-red-400" />
-                  <h3 className="text-xs font-mono font-bold text-red-400 uppercase tracking-wider">
-                    Propagation Simulation Findings
-                  </h3>
-                </div>
-                <button
-                  onClick={handleResetSimulation}
-                  className="text-[11px] font-mono text-slate-400 hover:text-slate-200 flex items-center gap-1"
-                >
-                  <RotateCcw className="w-3.5 h-3.5" /> Clear
-                </button>
-              </div>
-
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs font-mono mb-4">
-                <div className="bg-navy-950/80 p-2.5 rounded border border-slate-800">
-                  <span className="text-slate-400 text-[10px] block uppercase">Reachability</span>
-                  <span className="text-sm font-bold text-slate-100">
-                    {simResults.reachable_devices ?? 0} Assets
-                  </span>
-                </div>
-                <div className="bg-navy-950/80 p-2.5 rounded border border-slate-800">
-                  <span className="text-slate-400 text-[10px] block uppercase">Hop Depth</span>
-                  <span className="text-sm font-bold text-slate-100">
-                    {simResults.max_depth ?? 0} Hops
-                  </span>
-                </div>
-                <div className="bg-navy-950/80 p-2.5 rounded border border-slate-800">
-                  <span className="text-slate-400 text-[10px] block uppercase">Critical Assets</span>
-                  <span className="text-sm font-bold text-orange-400">
-                    {simResults.critical_asset_count ?? 0} Exposed
-                  </span>
-                </div>
-                <div className="bg-navy-950/80 p-2.5 rounded border border-slate-800">
-                  <span className="text-slate-400 text-[10px] block uppercase">Projected Impact</span>
-                  <span className="text-sm font-bold text-red-400">
-                    {simResults.estimated_impact || 'UNKNOWN'}
-                  </span>
-                </div>
-              </div>
-
-              {simResults.worst_path && simResults.worst_path.length > 0 && (
-                <div className="bg-navy-950 p-2.5 rounded border border-slate-800">
-                  <span className="text-[10px] font-mono text-slate-400 uppercase block mb-1">
-                    Longest Estimated Lateral Movement Vector:
-                  </span>
-                  <div className="flex items-center flex-wrap gap-2 text-xs font-mono text-slate-200">
-                    {simResults.worst_path.map((nodeId, idx) => (
-                      <React.Fragment key={nodeId}>
-                        <span className="px-2 py-0.5 rounded bg-red-950 text-red-300 border border-red-800 font-semibold">
-                          {nodeId}
-                        </span>
-                        {idx < simResults.worst_path.length - 1 && (
-                          <span className="text-slate-600">➔</span>
-                        )}
-                      </React.Fragment>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </Card>
-          )}
         </div>
 
+        {/* Right Col: Simulation Controller & Telemetry Drawer */}
         <div className="space-y-4">
-          <Card>
-            <SectionHeader title="Simulation Controller" subtitle="Trigger safe penetration analysis" />
-            <div className="space-y-3">
+          {/* Simulation Controller */}
+          <Card className="border-cyan-900/50">
+            <SectionHeader
+              title="Simulation Controller"
+              subtitle="Trigger safe lateral penetration analysis"
+            />
+
+            <div className="space-y-3 mt-2">
               <div>
-                <label className="text-[10px] font-mono text-slate-400 uppercase block mb-1">
-                  Designated Attack Origin
+                <label className="text-[10px] font-mono text-slate-400 uppercase block mb-1 font-semibold">
+                  Designated Attack Origin (Patient Zero)
                 </label>
                 <select
                   value={simSource}
                   onChange={(e) => setSimSource(e.target.value)}
-                  className="w-full bg-navy-950 border border-slate-700 text-slate-200 text-xs font-mono rounded p-2 focus:outline-none focus:border-cyan-500"
+                  className="w-full bg-slate-950 border border-slate-800 text-slate-200 text-xs font-mono rounded p-2 focus:outline-none focus:border-cyan-500"
                 >
                   {nodes.map((n) => (
                     <option key={n.id} value={n.id}>
-                      {n.hostname || n.ip_address || n.id} ({n.ip_address || 'No IP'})
+                      {n.hostname} ({n.ip_address})
                     </option>
                   ))}
                 </select>
@@ -319,57 +409,71 @@ export function CyberTwin() {
               <button
                 onClick={handleSimulate}
                 disabled={simulating || nodes.length === 0}
-                className="w-full py-2 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-slate-950 text-xs font-mono font-bold rounded flex items-center justify-center gap-2 transition"
+                className="w-full py-2.5 bg-gradient-to-r from-cyan-600 to-cyan-500 hover:from-cyan-500 hover:to-cyan-400 disabled:opacity-50 text-slate-950 text-xs font-mono font-bold rounded flex items-center justify-center gap-2 transition shadow-lg shadow-cyan-950/40"
               >
                 <Play className="w-3.5 h-3.5 fill-current" />
-                {simulating ? 'Calculating Vectors...' : 'Execute Twin Simulation'}
+                {simulating ? 'Calculating Lateral Vectors...' : 'Execute Twin Simulation'}
               </button>
             </div>
           </Card>
 
-          {selectedNode ? (
-            <Card>
-              <div className="flex items-center justify-between mb-3">
-                <SectionHeader title="Selected Node Telemetry" />
-                <RiskBadge level={selectedNode.risk_level || 'ADAPTIVE'} />
+          {/* Node Telemetry Drawer */}
+          {selectedNode && drawerOpen ? (
+            <Card className="border-slate-800 bg-slate-900/80">
+              <div className="flex items-center justify-between border-b border-slate-800/80 pb-2.5 mb-3">
+                <SectionHeader title="Selected Asset Telemetry" />
+                <RiskBadge
+                  level={selectedNode.risk_level || 'ADAPTIVE'}
+                  score={selectedNode.risk_score}
+                />
               </div>
 
               <div className="space-y-2.5 text-xs font-mono">
-                <div className="flex justify-between border-b border-slate-800 pb-1.5">
+                <div className="flex justify-between border-b border-slate-800/60 pb-1.5">
                   <span className="text-slate-400">Hostname</span>
-                  <span className="text-slate-200 font-semibold">{selectedNode.hostname || '—'}</span>
+                  <span className="text-slate-100 font-bold">{selectedNode.hostname}</span>
                 </div>
-                <div className="flex justify-between border-b border-slate-800 pb-1.5">
+                <div className="flex justify-between border-b border-slate-800/60 pb-1.5">
                   <span className="text-slate-400">IP Address</span>
-                  <span className="text-slate-200">{selectedNode.ip_address || '—'}</span>
+                  <span className="text-cyan-400 font-semibold">{selectedNode.ip_address}</span>
                 </div>
-                <div className="flex justify-between border-b border-slate-800 pb-1.5">
+                <div className="flex justify-between border-b border-slate-800/60 pb-1.5">
                   <span className="text-slate-400">MAC Address</span>
-                  <span className="text-slate-200">{selectedNode.mac_address || '—'}</span>
+                  <span className="text-slate-300">{selectedNode.mac_address || '—'}</span>
                 </div>
-                <div className="flex justify-between border-b border-slate-800 pb-1.5">
-                  <span className="text-slate-400">Device Type</span>
-                  <span className="text-slate-200">{selectedNode.device_type || '—'}</span>
+                <div className="flex justify-between border-b border-slate-800/60 pb-1.5">
+                  <span className="text-slate-400">Device Category</span>
+                  <span className="text-slate-200">{selectedNode.device_type}</span>
                 </div>
-                <div className="flex justify-between border-b border-slate-800 pb-1.5">
-                  <span className="text-slate-400">Vendor</span>
-                  <span className="text-slate-200">{selectedNode.vendor || '—'}</span>
-                </div>
-                <div className="flex justify-between border-b border-slate-800 pb-1.5">
-                  <span className="text-slate-400">Sensor Status</span>
-                  <span className={selectedNode.sensor_connected ? 'text-emerald-400' : 'text-slate-500'}>
-                    {selectedNode.sensor_connected ? 'Connected' : 'Unmonitored'}
+                <div className="flex justify-between border-b border-slate-800/60 pb-1.5">
+                  <span className="text-slate-400">Hardware Vendor</span>
+                  <span className="text-slate-300 truncate max-w-[170px]">
+                    {selectedNode.vendor || 'Connected Device'}
                   </span>
                 </div>
+                <div className="flex justify-between border-b border-slate-800/60 pb-1.5">
+                  <span className="text-slate-400">Operating System</span>
+                  <span className="text-slate-300">{selectedNode.os || 'Windows'}</span>
+                </div>
+                <div className="flex justify-between border-b border-slate-800/60 pb-1.5">
+                  <span className="text-slate-400">Sensor Status</span>
+                  <SensorBadge connected={selectedNode.sensor_connected} />
+                </div>
+                <div className="flex justify-between border-b border-slate-800/60 pb-1.5">
+                  <span className="text-slate-400">Criticality Weight</span>
+                  <span className="text-slate-200 font-bold">{selectedNode.criticality || 1}x</span>
+                </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-400">Risk Score</span>
-                  <span className="text-slate-100 font-bold">{selectedNode.risk_score ?? 0.0} / 100</span>
+                  <span className="text-slate-400">Last Seen</span>
+                  <span className="text-slate-400">
+                    {selectedNode.last_seen ? new Date(selectedNode.last_seen).toLocaleTimeString() : 'Recent'}
+                  </span>
                 </div>
               </div>
             </Card>
           ) : (
             <Card>
-              <EmptyState message="Select an asset on the canvas to inspect telemetry." />
+              <EmptyState message="Click an asset on the canvas to inspect real-time telemetry." />
             </Card>
           )}
         </div>

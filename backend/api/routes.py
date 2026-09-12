@@ -78,6 +78,16 @@ def login():
 # 2. SYSTEM STATUS & ADAPTER INTERFACES
 # ==========================================================
 
+@api_bp.route("/health", methods=["GET"])
+def health_check():
+    """Ultra-lightweight connectivity probe for sensors."""
+    return jsonify({
+        "status": "ok",
+        "service": "sentineltwin",
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }), 200
+
+
 @api_bp.route("/system/status", methods=["GET"])
 def get_system_status():
     """Returns general platform health and CPU/memory statistics."""
@@ -200,15 +210,159 @@ def trigger_network_discover():
 @api_bp.route("/devices", methods=["GET"])
 @api_bp.route("/network/devices", methods=["GET"])
 def get_devices():
-    """Returns all discovered network devices."""
+    """Returns all discovered network devices with dynamic transport and health computation."""
     try:
+        now_dt = datetime.now(timezone.utc)
+        timeout_seconds = getattr(config, "DEVICE_OFFLINE_TIMEOUT_SECONDS", 300)
         with get_conn(_get_target_db()) as conn:
             cur = conn.cursor()
             cur.execute("SELECT * FROM devices ORDER BY last_seen DESC")
-            rows = [dict(row) for row in cur.fetchall()]
+            rows = []
+            for r in cur.fetchall():
+                d = dict(r)
+                # Never expose security tokens or token hashes to frontend
+                d.pop("sensor_token_hash", None)
+                d.pop("sensor_token", None)
+
+                last_seen_str = d.get("last_seen")
+                is_offline = False
+                if last_seen_str:
+                    try:
+                        dt = datetime.fromisoformat(last_seen_str.replace("Z", "+00:00"))
+                        if dt.tzinfo is None:
+                            dt = dt.replace(tzinfo=timezone.utc)
+                        if (now_dt - dt).total_seconds() > timeout_seconds:
+                            is_offline = True
+                    except Exception:
+                        pass
+                else:
+                    is_offline = True
+
+                if is_offline:
+                    d["status"] = "Offline"
+                    d["transport_mode"] = "OFFLINE"
+                else:
+                    d["status"] = d.get("status") or "Online"
+                    d["transport_mode"] = d.get("transport_mode") or "DIRECT"
+
+                d["auth_status"] = str(d.get("auth_status") or "AUTHORIZED").upper()
+                rows.append(d)
         return jsonify(rows), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@api_bp.route("/sensor/register", methods=["POST", "OPTIONS"])
+def register_sensor():
+    """
+    Lightweight sensor registration and authorization check.
+    Server strictly checks connection layer (request.remote_addr).
+    New remote devices ALWAYS start in PENDING state until administrator approves.
+    Stores only SHA-256 hash of per-device token server-side.
+    """
+    if request.method == "OPTIONS":
+        return jsonify({"status": "ok"}), 200
+
+    data = request.get_json(silent=True) or {}
+    device_id = str(data.get("device_id") or "").strip()
+    hostname = str(data.get("hostname") or "Unknown Host").strip()
+    client_ip = request.remote_addr or "127.0.0.1"
+    os_name = str(data.get("os") or "Windows").strip()
+
+    if not device_id:
+        return jsonify({"error": "Missing device_id"}), 400
+
+    db_path = _get_target_db()
+    now = datetime.now(timezone.utc).isoformat()
+    import hashlib
+    import secrets
+
+    with get_conn(db_path) as conn:
+        row = conn.execute("SELECT id, auth_status, sensor_token_hash FROM devices WHERE id = ?", (device_id,)).fetchone()
+        if row:
+            auth_status = str(row["auth_status"] or "AUTHORIZED").upper()
+            token_hash = row["sensor_token_hash"]
+            raw_token = None
+
+            # If existing device lacks token hash, generate and store hash
+            if not token_hash:
+                raw_token = f"st-tok-{secrets.token_hex(24)}"
+                token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+                conn.execute("UPDATE devices SET sensor_token_hash = ?, last_seen = ? WHERE id = ?", (token_hash, now, device_id))
+            else:
+                conn.execute("UPDATE devices SET last_seen = ? WHERE id = ?", (now, device_id))
+
+            resp_data = {
+                "status": auth_status,
+                "device_id": device_id,
+                "registered": True
+            }
+            if raw_token:
+                resp_data["token"] = raw_token
+
+            status_code = 403 if auth_status == "REVOKED" else 200
+            return jsonify(resp_data), status_code
+
+        # STRICT SECURITY: Socket connection check ONLY.
+        # Never trust X-Forwarded-For, X-Real-IP, or any client-controlled headers for authorization.
+        # Never use client-reported data.get("source_ip") to determine local vs remote origin.
+        socket_ip = str(request.remote_addr or "").strip()
+        is_local = socket_ip in ("127.0.0.1", "::1")
+        auth_status = "AUTHORIZED" if is_local else "PENDING"
+
+        # Generate strong random token and compute SHA-256 hash
+        raw_token = f"st-tok-{secrets.token_hex(24)}"
+        token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+
+        reported_ip = str(data.get("source_ip") or data.get("ip_address") or "").strip()
+        if socket_ip and socket_ip not in ("127.0.0.1", "::1", "0.0.0.0"):
+            assigned_ip = socket_ip
+        elif reported_ip:
+            assigned_ip = reported_ip
+        else:
+            assigned_ip = f"192.168.1.{abs(hash(device_id)) % 250 + 2}"
+
+        conn.execute("""
+            INSERT INTO devices (
+                id, hostname, ip_address, mac_address, vendor, device_type,
+                os, status, sensor_connected, first_seen, last_seen,
+                risk_score, risk_level, auth_status, transport_mode, sensor_token_hash, last_event_received
+            ) VALUES (?, ?, ?, 'Unknown', 'Unknown', 'Workstation', ?, 'Online', 1, ?, ?, 0.0, 'ADAPTIVE', ?, 'DIRECT', ?, ?)
+        """, (device_id, hostname, assigned_ip, os_name, now, now, auth_status, token_hash, now))
+
+        return jsonify({
+            "status": auth_status,
+            "device_id": device_id,
+            "token": raw_token,
+            "registered": True,
+            "message": "Device registered successfully" if auth_status == "AUTHORIZED" else "Device registration pending administrator approval"
+        }), 201
+
+
+@api_bp.route("/devices/<device_id>/authorize", methods=["POST", "OPTIONS"])
+def authorize_device(device_id):
+    if request.method == "OPTIONS":
+        return jsonify({"status": "ok"}), 200
+    db_path = _get_target_db()
+    with get_conn(db_path) as conn:
+        row = conn.execute("SELECT id FROM devices WHERE id = ?", (device_id,)).fetchone()
+        if not row:
+            return jsonify({"error": f"Device {device_id} not found"}), 404
+        conn.execute("UPDATE devices SET auth_status = 'AUTHORIZED' WHERE id = ?", (device_id,))
+    return jsonify({"status": "AUTHORIZED", "device_id": device_id, "message": "Device authorized"}), 200
+
+
+@api_bp.route("/devices/<device_id>/revoke", methods=["POST", "OPTIONS"])
+def revoke_device(device_id):
+    if request.method == "OPTIONS":
+        return jsonify({"status": "ok"}), 200
+    db_path = _get_target_db()
+    with get_conn(db_path) as conn:
+        row = conn.execute("SELECT id FROM devices WHERE id = ?", (device_id,)).fetchone()
+        if not row:
+            return jsonify({"error": f"Device {device_id} not found"}), 404
+        conn.execute("UPDATE devices SET auth_status = 'REVOKED' WHERE id = ?", (device_id,))
+    return jsonify({"status": "REVOKED", "device_id": device_id, "message": "Device access revoked"}), 200
 
 
 @api_bp.route("/devices/<device_id>", methods=["GET", "DELETE"])
@@ -225,7 +379,10 @@ def handle_single_device(device_id):
             row = cur.fetchone()
             if not row:
                 return jsonify({"error": "Device not found"}), 404
-            return jsonify(dict(row)), 200
+            d = dict(row)
+            d.pop("sensor_token_hash", None)
+            d.pop("sensor_token", None)
+            return jsonify(d), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -253,42 +410,142 @@ def ingest_event_route():
         return jsonify({"status": "ok"}), 200
 
     data = request.get_json(silent=True) or {}
+    db_path = _get_target_db()
 
-    # Strict sensor payload validation (when sensor fields or events/ingest is called)
-    required = ["event_id", "record_id", "channel", "device_id", "event_timestamp"]
-    if any(k in data for k in ("record_id", "channel")) or request.path.endswith("/ingest"):
+    # Capture transport mode (DIRECT, PRIVATE_NETWORK, GOOGLE_DRIVE)
+    transport = str(request.headers.get("X-Transport-Mode") or data.get("transport") or "DIRECT").strip()
+    data["transport"] = transport
+
+    device_id = str(request.headers.get("X-Device-Id") or data.get("device_id") or "").strip()
+    if device_id:
+        with get_conn(db_path) as conn:
+            row = conn.execute("SELECT auth_status FROM devices WHERE id = ?", (device_id,)).fetchone()
+            if row:
+                auth_status = str(row["auth_status"] or "AUTHORIZED").upper()
+                if auth_status == "REVOKED":
+                    return jsonify({"error": "Forbidden: Device telemetry access is REVOKED"}), 403
+                if auth_status == "PENDING":
+                    return jsonify({"error": "Forbidden: Device registration is PENDING approval"}), 403
+
+    # Ensure event_timestamp has a valid ISO timestamp
+    if not data.get("event_timestamp"):
+        data["event_timestamp"] = data.get("timestamp") or datetime.now(timezone.utc).isoformat()
+
+    # Validate required fields if strict ingest called
+    if request.path.endswith("/ingest"):
+        required = ["event_id", "device_id"]
         for field in required:
             if field not in data or data[field] is None:
                 return jsonify({"error": f"Missing required field: {field}"}), 400
 
     try:
-        if "event_id" in data:
+        if "event_id" in data and data["event_id"] is not None:
             int(data["event_id"])
-        if "record_id" in data:
+        if "record_id" in data and data["record_id"] is not None:
             int(data["record_id"])
     except (ValueError, TypeError):
         return jsonify({"error": "Fields 'event_id' and 'record_id' must be valid integers."}), 400
 
-    db_path = _get_target_db()
-
-    # Idempotent deduplication check for exact (device_id, channel, record_id)
-    if data.get("record_id") and data.get("device_id") and data.get("channel"):
-        with get_conn(db_path) as conn:
-            cur = conn.cursor()
-            cur.execute("""
-                SELECT id FROM events 
-                WHERE device_id = ? AND channel = ? AND record_id = ?
-            """, (str(data["device_id"]), str(data["channel"]), int(data["record_id"])))
-            if cur.fetchone():
-                return jsonify({"status": "duplicate_ignored", "message": "Event already ingested"}), 409
-
     try:
         result = process_ingest_event(data, db_path=db_path)
+        if result.get("status") == "duplicate_ignored":
+            return jsonify(result), 409
         return jsonify(result), 201
+    except PermissionError as pe:
+        return jsonify({"error": str(pe)}), 403
     except Exception as e:
         logger.error(f"Event ingestion pipeline failed: {e}")
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
+
+
+@api_bp.route("/events/batch", methods=["POST", "OPTIONS"])
+def ingest_batch_route():
+    """
+    Duplicate-safe batch event ingestion for Google Drive relay and offline queue draining.
+    Employs dual-layer deduplication:
+    1. Batch-level idempotency via processed_batches
+    2. Event-level deduplication via stable (device_id, channel, record_id)
+    """
+    if request.method == "OPTIONS":
+        return jsonify({"status": "ok"}), 200
+
+    data = request.get_json(silent=True) or {}
+    batch_id = str(data.get("batch_id") or "").strip()
+    device_id = str(data.get("device_id") or "").strip()
+    transport = str(data.get("transport") or request.headers.get("X-Transport-Mode") or "GOOGLE_DRIVE").strip()
+    events = data.get("events") or []
+
+    if not batch_id or not device_id:
+        return jsonify({"error": "Missing batch_id or device_id"}), 400
+
+    db_path = _get_target_db()
+    now = datetime.now(timezone.utc).isoformat()
+
+    with get_conn(db_path) as conn:
+        # Check device authorization
+        dev = conn.execute("SELECT auth_status FROM devices WHERE id = ?", (device_id,)).fetchone()
+        if dev and str(dev["auth_status"]).upper() == "REVOKED":
+            return jsonify({"error": "Forbidden: Device telemetry access is REVOKED"}), 403
+        if dev and str(dev["auth_status"]).upper() == "PENDING":
+            return jsonify({"error": "Forbidden: Device registration is PENDING approval"}), 403
+
+        # 1. Batch-level deduplication check
+        cur = conn.cursor()
+        cur.execute("SELECT batch_id FROM processed_batches WHERE batch_id = ?", (batch_id,))
+        if cur.fetchone():
+            return jsonify({
+                "status": "duplicate_ignored",
+                "batch_id": batch_id,
+                "message": "Batch already processed"
+            }), 200
+
+    # Sort events chronologically (event_timestamp, record_id) to preserve original event order
+    def _event_sort_key(ev):
+        ts = ev.get("event_timestamp") or ev.get("timestamp") or ""
+        rec = ev.get("record_id") or 0
+        return (ts, rec)
+
+    sorted_events = sorted(events, key=_event_sort_key)
+    processed_count = 0
+    duplicate_count = 0
+
+    for ev in sorted_events:
+        if not isinstance(ev, dict):
+            continue
+        ev["device_id"] = device_id
+        ev["transport"] = transport
+        try:
+            res = process_ingest_event(ev, db_path=db_path)
+            if res.get("status") == "duplicate_ignored":
+                duplicate_count += 1
+            else:
+                processed_count += 1
+        except Exception as e:
+            logger.warning(f"Failed to ingest event in batch {batch_id}: {e}")
+
+    # Mark batch as processed
+    with get_conn(db_path) as conn:
+        conn.execute("""
+            INSERT INTO processed_batches (batch_id, device_id, processed_at, event_count, transport)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(batch_id) DO NOTHING
+        """, (batch_id, device_id, now, processed_count, transport))
+        conn.execute("""
+            UPDATE devices
+            SET last_seen = ?,
+                transport_mode = ?,
+                last_event_received = ?
+            WHERE id = ?
+        """, (now, transport, now, device_id))
+
+    return jsonify({
+        "status": "processed",
+        "batch_id": batch_id,
+        "processed_events": processed_count,
+        "duplicate_events": duplicate_count,
+        "total_events": len(events)
+    }), 201
 
 
 @api_bp.route("/events", methods=["GET"])
@@ -298,6 +555,19 @@ def get_events():
     event_type = request.args.get("event_type")
     rows = get_pipeline_events(limit=limit, device_id=device_id, event_type=event_type, db_path=_get_target_db())
     return jsonify(rows), 200
+
+
+@api_bp.route("/drive/sync", methods=["POST", "OPTIONS"])
+def trigger_drive_sync():
+    """Triggers synchronization of Google Drive fallback relay batches."""
+    if request.method == "OPTIONS":
+        return jsonify({"status": "ok"}), 200
+    try:
+        from backend.services.drive_sync import drive_sync_manager
+        results = drive_sync_manager.sync_local_relay(db_path=_get_target_db())
+        return jsonify({"status": "synced", "batches_processed": len(results), "results": results}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 # ==========================================================

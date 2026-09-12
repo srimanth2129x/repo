@@ -98,10 +98,11 @@ def ingest_event(raw: dict, db_path: str = None) -> dict:
     device_id = normalized["device_id"]
     hostname = normalized["hostname"]
     source_ip = normalized["source_ip"]
+    transport = raw.get("transport") or raw.get("transport_mode") or "DIRECT"
     now = datetime.now(timezone.utc).isoformat()
 
     # 1. Ensure Device Record
-    _ensure_sensor_device(device_id, hostname, source_ip, db_path)
+    _ensure_sensor_device(device_id, hostname, source_ip, db_path, transport=transport)
 
     # 2. Event-driven Digital Twin updates on network connections / logons
     dest_ip = normalized.get("destination_ip")
@@ -149,8 +150,14 @@ def ingest_event(raw: dict, db_path: str = None) -> dict:
     )
     risk_score = risk_res["risk_score"]
 
-    # 7. Store Event Record (Idempotent)
+    # 7. Store Event Record (Idempotent via database-level partial unique index)
     event_db_id = _store_event(normalized, risk_score, db_path)
+    if event_db_id is None:
+        return {
+            "status": "duplicate_ignored",
+            "device_id": device_id,
+            "message": "Event already ingested"
+        }
 
     # 8. Alert & Digital Twin Attack Propagation
     alert_info = None
@@ -237,17 +244,28 @@ def ingest_event(raw: dict, db_path: str = None) -> dict:
     }
 
 
-def _ensure_sensor_device(device_id: str, hostname: str, ip: str, db_path: str = None):
+def _ensure_sensor_device(device_id: str, hostname: str, ip: str, db_path: str = None, transport: str = "DIRECT"):
     now = datetime.now(timezone.utc).isoformat()
     with get_conn(db_path) as conn:
+        existing = conn.execute("SELECT auth_status FROM devices WHERE id = ?", (device_id,)).fetchone()
+        if existing:
+            status = str(existing["auth_status"] or "").upper()
+            if status == "REVOKED":
+                raise PermissionError(f"Device {device_id} telemetry access is REVOKED")
+            if status == "PENDING":
+                raise PermissionError(f"Device {device_id} registration is PENDING approval")
+
         conn.execute("""
             INSERT INTO devices (id, hostname, ip_address, mac_address, vendor, device_type,
-                                os, status, sensor_connected, first_seen, last_seen, risk_score, risk_level)
-            VALUES (?, ?, ?, 'Unknown', 'Unknown', 'Workstation', 'Windows', 'Online', 1, ?, ?, 0.0, 'ADAPTIVE')
+                                os, status, sensor_connected, first_seen, last_seen, risk_score, risk_level,
+                                auth_status, transport_mode, last_event_received)
+            VALUES (?, ?, ?, 'Unknown', 'Unknown', 'Workstation', 'Windows', 'Online', 1, ?, ?, 0.0, 'ADAPTIVE', 'AUTHORIZED', ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 last_seen = excluded.last_seen,
+                last_event_received = excluded.last_event_received,
+                transport_mode = excluded.transport_mode,
                 sensor_connected = 1
-        """, (device_id, hostname or "Unknown Host", ip or f"192.168.1.{abs(hash(device_id)) % 250 + 2}", now, now))
+        """, (device_id, hostname or "Unknown Host", ip or f"192.168.1.{abs(hash(device_id)) % 250 + 2}", now, now, transport, now))
 
 
 def _store_event(event: dict, risk_score: float, db_path: str = None) -> int:
@@ -256,9 +274,14 @@ def _store_event(event: dict, risk_score: float, db_path: str = None) -> int:
         cur = conn.cursor()
         meta = event.get("metadata", {})
         meta_str = json.dumps(meta) if isinstance(meta, dict) else str(meta)
+        rec_id = event.get("record_id") or 0
+        try:
+            rec_id = int(rec_id)
+        except (ValueError, TypeError):
+            rec_id = 0
 
         cur.execute("""
-            INSERT INTO events (
+            INSERT OR IGNORE INTO events (
                 device_id, channel, event_id, record_id, event_timestamp,
                 ingested_at, user, process_name, parent_process, command_line,
                 source_ip, destination_ip, destination_port, logon_type,
@@ -266,13 +289,15 @@ def _store_event(event: dict, risk_score: float, db_path: str = None) -> int:
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             event["device_id"], event.get("channel", "Security"), event.get("event_id", 0),
-            event.get("record_id", 0), event.get("timestamp", now), now,
+            rec_id, event.get("event_timestamp") or event.get("timestamp") or now, now,
             event.get("user"), event.get("process_name"), event.get("parent_process"),
             event.get("command_line"), event.get("source_ip"), event.get("destination_ip"),
             event.get("destination_port"), event.get("logon_type"),
             risk_score, meta_str, meta_str, event.get("event_type"),
             event.get("source", "Sysmon"), event.get("status", "")
         ))
+        if cur.rowcount == 0:
+            return None
         return cur.lastrowid
 
 

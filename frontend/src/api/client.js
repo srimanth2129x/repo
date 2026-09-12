@@ -1,6 +1,6 @@
 import axios from 'axios'
 
-const API_BASE_URL = 'http://localhost:5000/api'
+const API_BASE_URL = import.meta.env.VITE_API_URL || '/api'
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
@@ -12,7 +12,7 @@ export const api = axios.create({
 // System Status & Health Check
 export const getStatus = () => api.get('/system/status')
 export const getSystemStatus = () => api.get('/system/status')
-export const getHealth = () => axios.get('http://localhost:5000/health')
+export const getHealth = () => api.get('/system/status')
 
 // Dashboard Aggregates
 export const getDashboardSummary = () => api.get('/dashboard/summary')
@@ -53,5 +53,7 @@ export const getDevices = (params) => api.get('/devices', { params })
 export const getAllDevices = (params) => api.get('/devices', { params })
 export const getDeviceDetails = (deviceId) => api.get(`/devices/${deviceId}`)
 export const getDevice = (deviceId) => api.get(`/devices/${deviceId}`)
+export const authorizeDevice = (deviceId) => api.post(`/devices/${deviceId}/authorize`)
+export const revokeDevice = (deviceId) => api.post(`/devices/${deviceId}/revoke`)
 
 export default api

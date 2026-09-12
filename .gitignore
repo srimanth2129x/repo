@@ -18,6 +18,9 @@ env/
 *.db
 *.sqlite3
 sensor_checkpoint.json
+data/
+sentinel_events/
+drive_relay/
 
 # Node / Frontend build outputs
 node_modules/

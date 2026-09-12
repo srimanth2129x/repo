@@ -1,26 +1,94 @@
 import React from 'react'
+import { Shield, AlertCircle } from 'lucide-react'
+import { RiskBadge, StatusBadge, MitreBadge, SensorBadge, CategoryBadge } from './Badge'
 
-export function Card({ children, className = '' }) {
+export { RiskBadge, StatusBadge, MitreBadge, SensorBadge, CategoryBadge }
+
+export function Card({ children, className = '', hover = true, onClick }) {
   return (
-    <div className={`bg-navy-900/80 border border-slate-800 rounded p-4 ${className}`}>
+    <div
+      onClick={onClick}
+      className={`bg-slate-900/70 backdrop-blur-md border border-slate-800/80 rounded-lg shadow-lg p-4 transition-all duration-200 ${
+        hover ? 'hover:border-slate-700/90 hover:shadow-cyan-950/20 hover:shadow-md' : ''
+      } ${onClick ? 'cursor-pointer' : ''} ${className}`}
+    >
       {children}
     </div>
   )
 }
 
-export function StatCard({ title, value, change, subtitle, icon, trend, className = '' }) {
+export function StatCard({
+  title,
+  label,
+  value,
+  sub,
+  subtitle,
+  change,
+  trend,
+  icon,
+  accent = 'cyan',
+  onClick,
+  className = '',
+}) {
+  const displayTitle = title || label
+  const displaySub = sub || subtitle
+
+  const accentGlow = {
+    cyan: 'border-cyan-900/50 hover:border-cyan-600/70 hover:shadow-[0_0_15px_rgba(6,182,212,0.12)]',
+    emerald: 'border-emerald-900/50 hover:border-emerald-600/70 hover:shadow-[0_0_15px_rgba(16,185,129,0.12)]',
+    green: 'border-emerald-900/50 hover:border-emerald-600/70 hover:shadow-[0_0_15px_rgba(16,185,129,0.12)]',
+    amber: 'border-amber-900/50 hover:border-amber-600/70 hover:shadow-[0_0_15px_rgba(245,158,11,0.12)]',
+    orange: 'border-amber-900/50 hover:border-amber-600/70 hover:shadow-[0_0_15px_rgba(245,158,11,0.12)]',
+    rose: 'border-rose-900/50 hover:border-rose-600/70 hover:shadow-[0_0_15px_rgba(244,63,94,0.12)]',
+    red: 'border-rose-900/50 hover:border-rose-600/70 hover:shadow-[0_0_15px_rgba(244,63,94,0.12)]',
+    violet: 'border-violet-900/50 hover:border-violet-600/70 hover:shadow-[0_0_15px_rgba(139,92,246,0.12)]',
+  }[accent] || 'border-slate-800 hover:border-slate-700'
+
+  const valueColor = {
+    cyan: 'text-cyan-400',
+    emerald: 'text-emerald-400',
+    green: 'text-emerald-400',
+    amber: 'text-amber-400',
+    orange: 'text-amber-400',
+    rose: 'text-rose-400',
+    red: 'text-rose-400',
+    violet: 'text-violet-400',
+  }[accent] || 'text-slate-100'
+
   return (
-    <div className={`bg-navy-900/80 border border-slate-800 rounded p-4 flex flex-col justify-between ${className}`}>
+    <div
+      onClick={onClick}
+      className={`bg-slate-900/70 backdrop-blur-md border rounded-lg p-4 flex flex-col justify-between transition-all duration-200 select-none ${accentGlow} ${
+        onClick ? 'cursor-pointer active:scale-[0.98]' : ''
+      } ${className}`}
+    >
       <div className="flex items-center justify-between">
-        <span className="text-[11px] font-mono uppercase tracking-wider text-slate-400">{title}</span>
-        {icon && <span className="text-cyan-400 text-sm">{icon}</span>}
+        <span className="text-[11px] font-mono uppercase tracking-wider text-slate-400 font-medium">
+          {displayTitle}
+        </span>
+        {icon && <span className="text-slate-400 text-sm">{icon}</span>}
       </div>
-      <div className="my-2">
-        <div className="text-2xl font-bold font-mono text-slate-100">{value ?? '—'}</div>
-        {(subtitle || change) && (
-          <div className="text-[10px] font-mono text-slate-400 mt-0.5">
-            {change && <span className={trend === 'up' ? 'text-emerald-400 mr-1' : trend === 'down' ? 'text-rose-400 mr-1' : 'mr-1'}>{change}</span>}
-            {subtitle}
+
+      <div className="my-2.5">
+        <div className={`text-2xl sm:text-3xl font-bold font-mono tracking-tight ${valueColor}`}>
+          {value ?? '—'}
+        </div>
+        {(displaySub || change) && (
+          <div className="text-[11px] font-mono text-slate-400 mt-1 flex items-center gap-1.5 truncate">
+            {change && (
+              <span
+                className={`font-semibold ${
+                  trend === 'up'
+                    ? 'text-emerald-400'
+                    : trend === 'down'
+                    ? 'text-rose-400'
+                    : 'text-slate-400'
+                }`}
+              >
+                {change}
+              </span>
+            )}
+            {displaySub && <span className="truncate">{displaySub}</span>}
           </div>
         )}
       </div>
@@ -28,69 +96,49 @@ export function StatCard({ title, value, change, subtitle, icon, trend, classNam
   )
 }
 
-export function SectionHeader({ title, subtitle }) {
+export function SectionHeader({ title, subtitle, badge, action, children }) {
+  const displayTitle = title || (typeof children === 'string' ? children : null)
+
   return (
-    <div className="mb-3">
-      <h3 className="text-xs font-mono font-bold text-cyan-400 uppercase tracking-wider">{title}</h3>
-      {subtitle && <p className="text-[11px] font-mono text-slate-400 mt-0.5">{subtitle}</p>}
+    <div className="mb-3.5 flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/60 pb-2">
+      <div>
+        <div className="flex items-center gap-2">
+          {displayTitle && (
+            <h3 className="text-xs font-mono font-bold text-slate-200 uppercase tracking-wider flex items-center gap-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 shadow-[0_0_6px_#22d3ee]" />
+              {displayTitle}
+            </h3>
+          )}
+          {badge}
+        </div>
+        {subtitle && <p className="text-[11px] font-mono text-slate-400 mt-0.5">{subtitle}</p>}
+      </div>
+      {action && <div>{action}</div>}
     </div>
   )
 }
 
-export function Spinner() {
+export function Spinner({ message = 'Loading Telemetry...' }) {
   return (
-    <div className="flex items-center justify-center p-12">
-      <div className="w-6 h-6 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />
+    <div className="flex flex-col items-center justify-center p-12 space-y-3">
+      <div className="relative w-8 h-8">
+        <div className="absolute inset-0 rounded-full border-2 border-cyan-950 border-t-cyan-400 animate-spin" />
+        <div className="absolute inset-1.5 rounded-full border-2 border-violet-950 border-b-violet-400 animate-spin animate-reverse" />
+      </div>
+      <span className="text-xs font-mono text-slate-400 animate-pulse">{message}</span>
     </div>
   )
 }
 
-export function EmptyState({ message }) {
+export function EmptyState({ title, message, icon }) {
   return (
-    <div className="text-center py-8 text-slate-500 font-mono text-xs">
-      {message}
+    <div className="flex flex-col items-center justify-center py-10 px-4 text-center">
+      <div className="w-10 h-10 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-500 mb-2.5">
+        {icon || <AlertCircle className="w-5 h-5 text-slate-500" />}
+      </div>
+      {title && <div className="text-xs font-mono font-bold text-slate-300 mb-1">{title}</div>}
+      <div className="text-xs text-slate-400 font-mono max-w-sm">{message || 'No telemetry recorded yet.'}</div>
     </div>
-  )
-}
-
-export function StatusBadge({ status }) {
-  const isOnline = status?.toLowerCase() === 'online'
-  return (
-    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono font-medium ${
-      isOnline ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-slate-800 text-slate-400 border border-slate-700'
-    }`}>
-      {status || 'Unknown'}
-    </span>
-  )
-}
-
-export function RiskBadge({ level }) {
-  const styles = {
-    ADAPTIVE: 'bg-emerald-950 text-emerald-400 border-emerald-800',
-    SUSPICIOUS: 'bg-yellow-950 text-yellow-400 border-yellow-800',
-    'HIGH RISK': 'bg-orange-950 text-orange-400 border-orange-800',
-    HOSTILE: 'bg-red-950 text-red-400 border-red-800',
-  }
-  const badgeStyle = styles[level] || styles.ADAPTIVE
-  return (
-    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold border ${badgeStyle}`}>
-      {level || 'ADAPTIVE'}
-    </span>
-  )
-}
-
-export function Badge({ children, variant = 'default', className = '' }) {
-  const variants = {
-    default: 'bg-slate-800 text-slate-300 border-slate-700',
-    cyan: 'bg-cyan-950 text-cyan-400 border-cyan-800',
-    green: 'bg-emerald-950 text-emerald-400 border-emerald-800',
-    red: 'bg-red-950 text-red-400 border-red-800',
-    yellow: 'bg-yellow-950 text-yellow-400 border-yellow-800',
-  }
-  return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono font-medium border ${variants[variant] || variants.default} ${className}`}>
-      {children}
-    </span>
   )
 }
 
