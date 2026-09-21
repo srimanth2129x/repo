@@ -1,7 +1,34 @@
 """
 CyberDNA Behavioral Profile Engine
-Calculates incremental statistical baselines using Welford's algorithm
-and gates anomalies to defend against baseline poisoning attacks.
+==================================
+Calculates online statistical behavioral baselines using Welford's algorithm and
+detects behavioral anomalies, cohort deviations, and gradual drift.
+
+Core Concepts:
+  1. Welford's Algorithm:
+     Computes sample mean and sample variance incrementally in O(1) time and O(1) space.
+     Eliminates the need to store historical observation arrays in memory or disk.
+     Equations:
+       delta = x - mean_prev
+       mean_curr = mean_prev + delta / n
+       delta2 = x - mean_curr
+       M2_curr = M2_prev + delta * delta2
+       variance = M2_curr / (n - 1)
+       std_dev = sqrt(variance)
+
+  2. Baseline Poisoning Defense (Gating):
+     Attackers often generate gradual low-frequency anomalous activity to slowly shift
+     statistical baselines. SentinelTwin gates updates: if an observation deviates by more
+     than `CYBERDNA_GATE_THRESHOLD` (e.g., >=3.5 sigma), it is flagged as an anomaly but
+     REJECTED from being incorporated into the baseline.
+
+  3. Dual-Layer Profiling:
+     - Personal Baseline: Individual entity's historical behavior (e.g. user or host).
+     - Peer-Group Baseline: Aggregate cohort behavior across all similar assets (e.g. workstations).
+
+  4. Behavioral Drift:
+     Compares short-term Exponential Weighted Moving Average (EWMA, alpha=0.3)
+     against long-term Welford mean to detect stealthy persistent behavioral shifts.
 """
 import math
 import logging
@@ -22,6 +49,17 @@ class CyberDNAEngine:
     """
 
     def _get_or_create_baseline(self, cur, metric_key: str, entity_id: str, observation: float, peer_group: str, now: str):
+        """
+        Retrieves existing baseline statistics from SQLite or seeds a new baseline row.
+        
+        Args:
+            cur: Active SQLite cursor.
+            metric_key (str): Metric identifier (e.g. 'evt_4624_freq', 'logon_hour').
+            entity_id (str): Target entity (e.g. 'dev-host01' or 'peer_group:workstations').
+            observation (float): Value of the first observation if seeding.
+            peer_group (str): Cohort group name.
+            now (str): ISO timestamp.
+        """
         cur.execute("""
             SELECT sample_count, mean, m2, variance, standard_deviation, peer_group, short_term_mean
             FROM cyberdna_baselines 
@@ -30,6 +68,7 @@ class CyberDNAEngine:
         row = cur.fetchone()
 
         if not row:
+            # First observation: Initialize state with sample_count=1, mean=observation, m2=0
             sample_count = 1
             mean = float(observation)
             m2 = 0.0

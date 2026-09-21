@@ -1,7 +1,21 @@
 """
-Digital Twin Service
-NetworkX Graph Modeling, Event-Driven Topology Updates,
-and Multi-Hop Attack Propagation Analysis.
+Digital Twin Graph Modeling & Simulation Service
+================================================
+Constructs an in-memory NetworkX graph representing the monitored network topology
+and executes attack propagation / blast-radius simulations.
+
+Key Functions:
+  1. `build_networkx_graph()`:
+     Extracts devices (nodes) and observed communication paths (edges) from SQLite.
+     If no edges are recorded yet, automatically infers a star-topology gateway model.
+
+  2. `get_topology_graph()`:
+     Serializes the NetworkX graph into standard Cytoscape.js JSON format with
+     node risk scores, status badges, and device criticality metadata.
+
+  3. `run_propagation_simulation()`:
+     Calculates lateral movement attack blast radius across multi-hop network paths,
+     evaluating which critical assets (domain controllers, database servers) are reachable.
 """
 import json
 import logging
@@ -15,22 +29,39 @@ logger = logging.getLogger(__name__)
 
 
 def build_networkx_graph(db_path: str = None) -> nx.Graph:
-    """Builds a NetworkX graph from devices and topology_edges tables."""
+    """
+    Builds an in-memory NetworkX undirected graph from SQLite `devices` and `topology_edges` tables.
+
+    Node attributes include:
+      - hostname, IP address, MAC address, vendor, device_type
+      - risk_score, risk_level (LOW, MEDIUM, HIGH)
+      - criticality level (1 to 5)
+
+    Edge attributes include:
+      - relationship_type ('observed_connection', 'inferred_gateway')
+      - protocol (TCP/UDP/ICMP), destination port, confidence level
+    """
     G = nx.Graph()
 
     with get_conn(db_path) as conn:
         cur = conn.cursor()
+        # Query all active and discovered network endpoints
         cur.execute("SELECT id, ip_address, mac_address, hostname, vendor, device_type, status, trust_level, criticality, risk_score, risk_level, sensor_connected FROM devices")
         devices = cur.fetchall()
 
         for d in devices:
+            raw_host = d["hostname"] or "Unknown"
+            if raw_host.lower().startswith("node-"):
+                raw_host = "Workstation-" + raw_host[5:]
+            label = raw_host if raw_host and raw_host != "Unknown Device" else d["ip_address"]
+            # Add endpoint as node with full asset metadata
             G.add_node(d["id"], **{
                 "id": d["id"],
-                "label": d["hostname"] if d["hostname"] and d["hostname"] != "Unknown Device" else d["ip_address"],
+                "label": label,
                 "ip": d["ip_address"],
                 "ip_address": d["ip_address"],
                 "mac_address": d["mac_address"] or "—",
-                "hostname": d["hostname"] or "Unknown",
+                "hostname": raw_host,
                 "vendor": d["vendor"] or "Unknown",
                 "device_type": d["device_type"] or "Unknown",
                 "status": d["status"] or "Online",
@@ -41,6 +72,7 @@ def build_networkx_graph(db_path: str = None) -> nx.Graph:
                 "sensor_connected": bool(d["sensor_connected"])
             })
 
+        # Query explicit network communication edges
         cur.execute("SELECT source, target, relationship_type, observed, inferred, confidence, protocol, port, evidence FROM topology_edges")
         edges = cur.fetchall()
 
@@ -56,7 +88,8 @@ def build_networkx_graph(db_path: str = None) -> nx.Graph:
                     "evidence": e["evidence"] or "observed telemetry"
                 })
 
-    # If no explicit edges exist, infer gateway connectivity (star topology)
+    # If no explicit edges exist yet, infer gateway connectivity (star topology)
+    # so the visual Cytoscape graph remains connected and usable
     if G.number_of_nodes() > 1 and G.number_of_edges() == 0:
         _infer_gateway_topology(G)
 

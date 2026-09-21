@@ -11,22 +11,20 @@ import {
   Laptop,
   ChevronLeft,
   ChevronRight,
-  Shield,
+  Radio,
 } from 'lucide-react'
 
 const NAV_GROUPS = [
   {
-    title: 'COMMAND & TOPOLOGY',
+    title: 'CORE',
     items: [
       { id: 'overview', label: 'Overview', icon: LayoutDashboard },
-      { id: 'network', label: 'Network', icon: Network },
-      { id: 'cybertwin', label: 'Cyber Twin', icon: Share2 },
     ],
   },
   {
-    title: 'THREAT DETECTION & BEHAVIOR',
+    title: 'MONITOR',
     items: [
-      { id: 'cyberdna', label: 'CyberDNA', icon: Dna },
+      { id: 'devices', label: 'Devices', icon: Laptop },
       { id: 'events', label: 'Events', icon: Activity },
       { id: 'alerts', label: 'Alerts', icon: BellRing, badgeKey: 'alerts' },
     ],
@@ -34,14 +32,16 @@ const NAV_GROUPS = [
   {
     title: 'INTELLIGENCE',
     items: [
+      { id: 'cyberdna', label: 'CyberDNA', icon: Dna },
+      { id: 'risk', label: 'Risk Analysis', icon: Gauge },
       { id: 'incidents', label: 'Incidents', icon: ShieldAlert, badgeKey: 'incidents' },
-      { id: 'risk', label: 'Risk Intel', icon: Gauge },
     ],
   },
   {
-    title: 'SYSTEM & ASSETS',
+    title: 'DIGITAL TWIN',
     items: [
-      { id: 'devices', label: 'Devices', icon: Laptop },
+      { id: 'network', label: 'Network', icon: Network },
+      { id: 'cybertwin', label: 'Digital Twin & Sims', icon: Share2 },
     ],
   },
 ]
@@ -57,16 +57,16 @@ export function Sidebar({ active, onNav, alertCount = 0, incidentCount = 0 }) {
 
   return (
     <aside
-      className={`relative shrink-0 bg-slate-950/80 backdrop-blur-md border-r border-slate-800/80 flex flex-col justify-between py-3 transition-all duration-300 select-none z-20 ${
-        collapsed ? 'w-16' : 'w-56'
+      className={`relative shrink-0 bg-white dark:bg-[#0c1018] border-r border-slate-200 dark:border-[#1e2738] flex flex-col justify-between py-3 transition-all duration-300 select-none z-20 theme-transition ${
+        collapsed ? 'w-16' : 'w-60'
       }`}
     >
       {/* Navigation Sections */}
-      <div className="space-y-5 overflow-y-auto px-2">
+      <div className="space-y-4 overflow-y-auto px-2.5">
         {NAV_GROUPS.map((group, gIdx) => (
           <div key={gIdx} className="space-y-1">
             {!collapsed && (
-              <div className="px-3 pb-1 text-[10px] font-mono font-bold tracking-widest text-slate-400 uppercase">
+              <div className="px-2.5 pb-1 text-[9px] font-mono font-bold tracking-widest text-slate-400 dark:text-slate-400 uppercase">
                 {group.title}
               </div>
             )}
@@ -82,25 +82,27 @@ export function Sidebar({ active, onNav, alertCount = 0, incidentCount = 0 }) {
                     key={item.id}
                     onClick={() => onNav(item.id)}
                     title={collapsed ? item.label : undefined}
-                    className={`w-full group relative flex items-center gap-3 px-3 py-2 rounded text-xs font-mono transition-all duration-150 ${
+                    className={`w-full group relative flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-mono transition-all duration-150 cursor-pointer ${
                       isActive
-                        ? 'bg-cyan-950/70 text-cyan-300 font-semibold border border-cyan-800/70 shadow-[0_0_12px_rgba(6,182,212,0.15)]'
-                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60 border border-transparent'
+                        ? 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white font-semibold border border-slate-300 dark:border-slate-700 shadow-sm'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-900/60 border border-transparent'
                     } ${collapsed ? 'justify-center px-0' : ''}`}
                   >
                     {/* Active Accent Pill */}
                     {isActive && (
-                      <span className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r bg-cyan-400 shadow-[0_0_8px_#22d3ee]" />
+                      <span className="absolute left-0 top-2 bottom-2 w-1 rounded-r bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.5)]" />
                     )}
 
                     <Icon
                       className={`w-4 h-4 shrink-0 transition-colors ${
-                        isActive ? 'text-cyan-400' : 'text-slate-500 group-hover:text-cyan-300'
+                        isActive
+                          ? 'text-slate-900 dark:text-white'
+                          : 'text-slate-400 dark:text-slate-500 group-hover:text-slate-700 dark:group-hover:text-slate-300'
                       }`}
                     />
 
                     {!collapsed && (
-                      <span className="truncate uppercase tracking-wider text-[11px]">
+                      <span className="truncate tracking-wide text-[11px] font-medium">
                         {item.label}
                       </span>
                     )}
@@ -110,8 +112,8 @@ export function Sidebar({ active, onNav, alertCount = 0, incidentCount = 0 }) {
                       <span
                         className={`ml-auto px-1.5 py-0.2 rounded-full text-[10px] font-bold font-mono ${
                           item.badgeKey === 'alerts'
-                            ? 'bg-rose-950 text-rose-300 border border-rose-800/80 shadow-[0_0_6px_rgba(244,63,94,0.3)]'
-                            : 'bg-amber-950 text-amber-300 border border-amber-800/80'
+                            ? 'bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300 border border-red-300 dark:border-red-800/80'
+                            : 'bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800/80'
                         }`}
                       >
                         {count}
@@ -120,7 +122,7 @@ export function Sidebar({ active, onNav, alertCount = 0, incidentCount = 0 }) {
 
                     {/* Collapsed Dot Badge */}
                     {collapsed && count > 0 && (
-                      <span className="absolute top-1 right-2 w-2 h-2 rounded-full bg-rose-500 shadow-[0_0_6px_#f43f5e]" />
+                      <span className="absolute top-1.5 right-2 w-2 h-2 rounded-full bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.6)]" />
                     )}
                   </button>
                 )
@@ -131,10 +133,10 @@ export function Sidebar({ active, onNav, alertCount = 0, incidentCount = 0 }) {
       </div>
 
       {/* Footer Collapse Toggle */}
-      <div className="pt-2 px-2 border-t border-slate-800/80">
+      <div className="pt-2 px-2.5 border-t border-slate-200 dark:border-[#1e2738]">
         <button
           onClick={() => setCollapsed(!collapsed)}
-          className="w-full flex items-center justify-center gap-2 p-1.5 text-xs font-mono text-slate-500 hover:text-slate-300 hover:bg-slate-900/60 rounded border border-transparent hover:border-slate-800 transition"
+          className="w-full flex items-center justify-center gap-2 p-1.5 text-xs font-mono text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-900 rounded-lg border border-transparent hover:border-slate-200 dark:hover:border-slate-800 transition cursor-pointer"
           title={collapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
         >
           {collapsed ? (
@@ -142,7 +144,7 @@ export function Sidebar({ active, onNav, alertCount = 0, incidentCount = 0 }) {
           ) : (
             <>
               <ChevronLeft className="w-4 h-4" />
-              <span className="text-[10px] uppercase tracking-wider">Collapse View</span>
+              <span className="text-[10px] uppercase tracking-wider font-semibold">Collapse Nav</span>
             </>
           )}
         </button>

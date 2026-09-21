@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import { getStatus, getNetworkInterfaces, getIncidents } from './api/client'
+import { ThemeProvider } from './context/ThemeContext'
 import { TopBar } from './components/TopBar'
 import { Sidebar } from './components/Sidebar'
 import { StatusBar } from './components/StatusBar'
@@ -14,7 +15,7 @@ import Incidents from './pages/Incidents'
 import RiskIntel from './pages/RiskIntel'
 import Devices from './pages/Devices'
 
-export default function App() {
+function AppContent() {
   const [page, setPage] = useState('overview')
   const [status, setStatus] = useState({
     status: 'operational',
@@ -90,7 +91,7 @@ export default function App() {
   }
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden bg-slate-950 text-slate-200">
+    <div className="flex flex-col h-screen overflow-hidden bg-[#f4f6f9] dark:bg-[#080b11] text-slate-900 dark:text-slate-100 theme-transition">
       {/* 1. TOP EXECUTIVE BAR */}
       <TopBar status={status} onRefresh={loadStatus} />
 
@@ -103,17 +104,27 @@ export default function App() {
           incidentCount={incidentCount}
         />
 
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-950/90 relative">
-          {pages[page] || (
-            <div className="p-8 text-center text-slate-500 font-mono text-xs">
-              Page "{page}" not found.
-            </div>
-          )}
+        <main className="flex-1 overflow-y-auto p-4 sm:p-6 bg-[#f8fafc]/80 dark:bg-[#080b11]/90 relative">
+          <div key={page} className="page-enter max-w-7xl mx-auto">
+            {pages[page] || (
+              <div className="p-8 text-center text-slate-500 font-mono text-xs">
+                Page "{page}" not found.
+              </div>
+            )}
+          </div>
         </main>
       </div>
 
       {/* 3. BOTTOM SYSTEM STATUS BAR */}
       <StatusBar status={status} />
     </div>
+  )
+}
+
+export default function App() {
+  return (
+    <ThemeProvider>
+      <AppContent />
+    </ThemeProvider>
   )
 }

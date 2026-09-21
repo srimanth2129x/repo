@@ -1,6 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import {
-  LayoutDashboard,
   Shield,
   Activity,
   AlertTriangle,
@@ -10,16 +9,21 @@ import {
   Dna,
   RefreshCw,
   TrendingUp,
-  Clock,
   ArrowRight,
-  ExternalLink,
+  ChevronRight,
+  Server,
+  Layers,
+  CheckCircle2,
+  Lock,
 } from 'lucide-react'
-import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend } from 'recharts'
+import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from 'recharts'
 import { getDashboardSummary, getDevices, getEvents, getAlerts } from '../api/client'
 import { Card, SectionHeader, StatCard, Spinner, EmptyState } from '../components/ui/Card'
 import { RiskBadge, StatusBadge, MitreBadge } from '../components/ui/Badge'
+import { useTheme } from '../context/ThemeContext'
 
 export function Overview({ onNav }) {
+  const { isDark } = useTheme()
   const [summary, setSummary] = useState(null)
   const [devices, setDevices] = useState([])
   const [events, setEvents] = useState([])
@@ -60,7 +64,7 @@ export function Overview({ onNav }) {
   }
 
   if (loading && !summary) {
-    return <Spinner message="Assembling SOC Executive Metrics..." />
+    return <Spinner message="Assembling SOC Executive Telemetry..." />
   }
 
   // Calculate Real Risk Distribution
@@ -71,119 +75,143 @@ export function Overview({ onNav }) {
     HOSTILE: 0,
   }
 
+  let totalScore = 0
   devices.forEach((d) => {
     const level = String(d.risk_level || '').toUpperCase()
     const score = d.risk_score ?? 0
-    if (level.includes('HOSTILE') || score >= 90) {
+    totalScore += score
+    if (level.includes('HOSTILE') || score >= 80) {
       riskCounts.HOSTILE += 1
-    } else if (level.includes('HIGH') || score >= 70) {
+    } else if (level.includes('HIGH') || score >= 50) {
       riskCounts.HIGH_RISK += 1
-    } else if (level.includes('SUSPICIOUS') || score >= 30) {
+    } else if (level.includes('SUSPICIOUS') || score >= 25) {
       riskCounts.SUSPICIOUS += 1
     } else {
       riskCounts.ADAPTIVE += 1
     }
   })
 
+  const avgFleetRisk = devices.length > 0 ? (totalScore / devices.length).toFixed(0) : '0'
+
   const riskChartData = [
-    { name: 'Adaptive', value: riskCounts.ADAPTIVE, color: '#10b981' },
+    { name: 'Adaptive (Normal)', value: riskCounts.ADAPTIVE, color: '#10b981' },
     { name: 'Suspicious', value: riskCounts.SUSPICIOUS, color: '#f59e0b' },
-    { name: 'High Risk', value: riskCounts.HIGH_RISK, color: '#f43f5e' },
-    { name: 'Hostile', value: riskCounts.HOSTILE, color: '#ef4444' },
+    { name: 'High Risk', value: riskCounts.HIGH_RISK, color: '#f97316' },
+    { name: 'Hostile Threat', value: riskCounts.HOSTILE, color: '#ef4444' },
   ].filter((item) => item.value > 0)
 
-  // Fallback if zero devices
   const finalChartData = riskChartData.length > 0 ? riskChartData : [
-    { name: 'Waiting for Assets', value: 1, color: '#334155' }
+    { name: 'Awaiting Telemetry', value: 1, color: isDark ? '#1e293b' : '#e2e8f0' }
   ]
 
   const totalDevices = devices.length || summary?.total_devices || 0
   const onlineDevices = devices.filter((d) => (d.status || '').toLowerCase() === 'online').length
   const activeAlerts = alerts.filter((a) => (a.status || '').toUpperCase() !== 'RESOLVED').length
-  const criticalCount = alerts.filter((a) => String(a.severity || '').toUpperCase().includes('CRITICAL')).length
+  const highAlerts = alerts.filter((a) => {
+    const s = String(a.severity || '').toUpperCase()
+    return s.includes('HIGH') || s.includes('CRITICAL')
+  }).length
   const totalEvents = summary?.total_events ?? events.length
 
   const recentTelemetry = events.slice(0, 7)
 
+  // Pipeline architecture nodes
+  const pipelineStages = [
+    { name: 'Windows Sensor', sub: 'Event Telemetry', active: true },
+    { name: 'Event Processing', sub: 'Sysmon & Security', active: true },
+    { name: 'CyberDNA', sub: 'Welford Baselines', active: true },
+    { name: 'Threat Detection', sub: 'ATT&CK Correlation', active: activeAlerts > 0 },
+    { name: 'Risk Engine', sub: 'Point-Attribution', active: true },
+    { name: 'Risk Gate', sub: 'Autonomous Triage', active: true },
+    { name: 'Digital Twin', sub: 'Network Topology', active: true },
+    { name: 'Attack Path', sub: 'BFS Blast-Radius', active: true },
+  ]
+
   return (
     <div className="space-y-6">
-      {/* Executive Security State Header */}
-      <div className="flex flex-wrap items-center justify-between gap-4 bg-slate-900/70 backdrop-blur-md p-4 border border-slate-800/80 rounded-lg">
-        <div className="flex items-center gap-3">
-          <div className="p-2 rounded bg-cyan-950/60 border border-cyan-800/70 text-cyan-400 shadow-[0_0_12px_rgba(6,182,212,0.15)]">
-            <Shield className="w-5 h-5" />
+      {/* 1. Architecture Pipeline Visual Ribbon */}
+      <Card className="bg-slate-50 dark:bg-[#0c1018] border-slate-200 dark:border-[#1e2738] p-4">
+        <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-2 mb-3">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.5)]" />
+            <span className="text-[11px] font-mono font-bold uppercase tracking-widest text-slate-800 dark:text-slate-200">
+              SentinelTwin Architecture Pipeline
+            </span>
           </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-sm font-mono font-bold text-slate-100 uppercase tracking-wider">
-                Security Operations Center (SOC)
-              </h2>
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950/80 border border-emerald-800/80 text-emerald-300 font-semibold">
-                SYSTEM HEALTH: {activeAlerts > 0 ? 'ATTENTION REQUIRED' : 'NOMINAL ENFORCEMENT'}
-              </span>
-            </div>
-            <p className="text-[11px] font-mono text-slate-400 mt-0.5">
-              Live threat posture, behavioral anomaly telemetry, and attack propagation reachability
-            </p>
-          </div>
+          <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400 hidden sm:inline">
+            Observe → Understand → Detect → Score → Simulate → Respond
+          </span>
         </div>
 
-        <button
-          onClick={loadDashboard}
-          className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 rounded text-xs font-mono flex items-center gap-1.5 transition"
-        >
-          <RefreshCw className="w-3.5 h-3.5" />
-          Refresh
-        </button>
-      </div>
+        {/* Horizontal Pipeline Steps */}
+        <div className="overflow-x-auto pb-1">
+          <div className="flex items-center min-w-[760px] justify-between gap-1 text-center font-mono">
+            {pipelineStages.map((stage, idx) => (
+              <React.Fragment key={stage.name}>
+                <div className="flex-1 px-2 py-2 rounded-lg bg-white dark:bg-[#121824] border border-slate-200 dark:border-slate-800/80 shadow-sm transition hover:border-slate-400 dark:hover:border-slate-600">
+                  <div className="text-[10px] font-bold text-slate-900 dark:text-slate-100 truncate">
+                    {stage.name}
+                  </div>
+                  <div className="text-[9px] text-slate-500 dark:text-slate-400 mt-0.5 truncate">
+                    {stage.sub}
+                  </div>
+                </div>
+                {idx < pipelineStages.length - 1 && (
+                  <span className="text-slate-400 dark:text-slate-600 px-1 text-xs font-bold">➔</span>
+                )}
+              </React.Fragment>
+            ))}
+          </div>
+        </div>
+      </Card>
 
-      {/* Executive Stat Cards */}
+      {/* 2. Top Executive KPI Row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <StatCard
-          title="Monitored Assets"
+          title="Overall Fleet Risk"
+          value={`${avgFleetRisk} / 100`}
+          sub={parseInt(avgFleetRisk) >= 50 ? 'HIGH RISK' : parseInt(avgFleetRisk) >= 25 ? 'SUSPICIOUS' : 'NOMINAL / LOW'}
+          accent={parseInt(avgFleetRisk) >= 50 ? 'red' : parseInt(avgFleetRisk) >= 25 ? 'amber' : 'emerald'}
+          icon={<Shield className="w-4 h-4" />}
+          onClick={() => handleNav('risk')}
+        />
+        <StatCard
+          title="Active Devices"
           value={totalDevices}
-          sub={`${onlineDevices} online on subnet`}
-          accent="cyan"
-          icon={<Laptop className="w-4 h-4 text-cyan-400" />}
+          sub={`${onlineDevices} online on local subnet`}
+          accent="neutral"
+          icon={<Laptop className="w-4 h-4" />}
           onClick={() => handleNav('devices')}
         />
         <StatCard
           title="Active Alerts"
           value={activeAlerts}
-          sub={criticalCount > 0 ? `${criticalCount} critical alerts` : 'Under active watch'}
-          accent={activeAlerts > 0 ? 'rose' : 'emerald'}
-          icon={<AlertTriangle className="w-4 h-4 text-rose-400" />}
+          sub={highAlerts > 0 ? `${highAlerts} critical/high priority` : 'Zero active breaches'}
+          accent={activeAlerts > 0 ? 'red' : 'emerald'}
+          icon={<AlertTriangle className="w-4 h-4" />}
           onClick={() => handleNav('alerts')}
         />
         <StatCard
-          title="High-Risk Endpoints"
-          value={riskCounts.HIGH_RISK + riskCounts.HOSTILE}
-          sub="Triggered triage threshold"
-          accent={riskCounts.HIGH_RISK + riskCounts.HOSTILE > 0 ? 'amber' : 'green'}
-          icon={<Shield className="w-4 h-4 text-amber-400" />}
-          onClick={() => handleNav('risk')}
-        />
-        <StatCard
-          title="Telemetry Events"
-          value={totalEvents}
-          sub="Ingested & normalized"
-          accent="violet"
-          icon={<Activity className="w-4 h-4 text-violet-400" />}
+          title="Events Ingested"
+          value={totalEvents.toLocaleString()}
+          sub="Normalized & correlated"
+          accent="neutral"
+          icon={<Activity className="w-4 h-4" />}
           onClick={() => handleNav('events')}
         />
         <StatCard
           title="Digital Twin Sims"
           value={summary?.cyber_twin?.simulations ?? 0}
-          sub="Propagation scenarios"
-          accent="indigo"
-          icon={<Share2 className="w-4 h-4 text-indigo-400" />}
+          sub="Lateral attack scenarios"
+          accent="neutral"
+          icon={<Share2 className="w-4 h-4" />}
           onClick={() => handleNav('cybertwin')}
         />
       </div>
 
-      {/* Main Split: Risk Donut Chart & Live Telemetry Stream */}
+      {/* 3. Main Central Split: Fleet Risk Distribution & Real-Time Event Stream */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Col: Real Risk Distribution Donut Chart */}
+        {/* Fleet Risk Distribution */}
         <Card className="lg:col-span-1 flex flex-col justify-between">
           <div>
             <SectionHeader
@@ -204,59 +232,63 @@ export function Overview({ onNav }) {
                     dataKey="value"
                   >
                     {finalChartData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} stroke="#0f172a" strokeWidth={2} />
+                      <Cell
+                        key={`cell-${index}`}
+                        fill={entry.color}
+                        stroke={isDark ? '#0c1018' : '#ffffff'}
+                        strokeWidth={2}
+                      />
                     ))}
                   </Pie>
                   <Tooltip
                     contentStyle={{
-                      backgroundColor: '#030712',
-                      borderColor: '#1e293b',
-                      borderRadius: '6px',
+                      backgroundColor: isDark ? '#0c1018' : '#ffffff',
+                      borderColor: isDark ? '#1e2738' : '#cbd5e1',
+                      borderRadius: '8px',
                       fontSize: '11px',
                       fontFamily: 'monospace',
+                      color: isDark ? '#f8fafc' : '#0f172a',
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
                     }}
-                  />
-                  <Legend
-                    verticalAlign="bottom"
-                    height={36}
-                    formatter={(value) => (
-                      <span className="text-[10px] font-mono text-slate-400 uppercase">{value}</span>
-                    )}
                   />
                 </PieChart>
               </ResponsiveContainer>
 
-              {/* Centered Total Count */}
-              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none pb-8">
-                <span className="text-xl font-bold font-mono text-slate-100">{totalDevices}</span>
-                <span className="text-[9px] font-mono text-slate-500 uppercase">Assets</span>
+              {/* Centered Total Assets Count */}
+              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none pb-2">
+                <span className="text-2xl font-bold font-mono text-slate-900 dark:text-slate-100">{totalDevices}</span>
+                <span className="text-[10px] font-mono text-slate-500 uppercase tracking-wider">Monitored</span>
               </div>
             </div>
           </div>
 
-          <div className="border-t border-slate-800/80 pt-3 mt-2 grid grid-cols-2 gap-2 text-center text-[10px] font-mono">
-            <div className="p-2 rounded bg-slate-950/60 border border-slate-800">
-              <span className="text-emerald-400 font-bold block">{riskCounts.ADAPTIVE}</span>
-              <span className="text-slate-500">Adaptive</span>
+          <div className="border-t border-slate-200 dark:border-slate-800 pt-3 mt-2 grid grid-cols-3 gap-2 text-center text-[10px] font-mono">
+            <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800">
+              <span className="text-emerald-600 dark:text-emerald-400 font-bold text-xs block">{riskCounts.ADAPTIVE}</span>
+              <span className="text-slate-500 dark:text-slate-400">Normal</span>
             </div>
-            <div className="p-2 rounded bg-slate-950/60 border border-slate-800">
-              <span className="text-rose-400 font-bold block">
+            <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800">
+              <span className="text-amber-600 dark:text-amber-400 font-bold text-xs block">{riskCounts.SUSPICIOUS}</span>
+              <span className="text-slate-500 dark:text-slate-400">Suspicious</span>
+            </div>
+            <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800">
+              <span className="text-red-600 dark:text-red-400 font-bold text-xs block">
                 {riskCounts.HIGH_RISK + riskCounts.HOSTILE}
               </span>
-              <span className="text-slate-500">Elevated</span>
+              <span className="text-slate-500 dark:text-slate-400">Elevated</span>
             </div>
           </div>
         </Card>
 
-        {/* Right 2 Cols: Live Telemetry Stream */}
+        {/* Live Security Ingestion Stream */}
         <Card className="lg:col-span-2">
           <SectionHeader
-            title="Live Telemetry & Threat Ingestion Stream"
-            subtitle="Normalized Windows Security & Sysmon events passing through correlation"
+            title="Live Security Telemetry & Correlation Stream"
+            subtitle="Normalized Windows Security & Sysmon events passing through correlation engine"
             action={
               <button
                 onClick={() => handleNav('events')}
-                className="text-xs font-mono text-cyan-400 hover:text-cyan-300 flex items-center gap-1 transition"
+                className="text-xs font-mono text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white flex items-center gap-1 transition cursor-pointer"
               >
                 Full Stream <ArrowRight className="w-3.5 h-3.5" />
               </button>
@@ -265,12 +297,12 @@ export function Overview({ onNav }) {
 
           {recentTelemetry.length === 0 ? (
             <EmptyState
-              icon={<Activity className="w-6 h-6 text-slate-600" />}
-              title="Waiting for Event Ingestion"
-              message="No telemetry events recorded yet. Connect Windows Event Sensor or submit simulated events."
+              icon={<Activity className="w-6 h-6 text-slate-400" />}
+              title="Awaiting Telemetry Ingestion"
+              message="No security events recorded yet. Connect Windows Event Sensor or run discovery."
             />
           ) : (
-            <div className="space-y-2 mt-3">
+            <div className="space-y-2 mt-2">
               {recentTelemetry.map((ev, i) => {
                 const ts = ev.event_timestamp || ev.timestamp
                 const timeStr = ts ? new Date(ts).toLocaleTimeString() : 'Recent'
@@ -280,14 +312,15 @@ export function Overview({ onNav }) {
                 return (
                   <div
                     key={ev.id || i}
-                    className="p-2.5 rounded bg-slate-950/80 border border-slate-800/80 hover:border-slate-700/80 flex items-center justify-between text-xs font-mono transition-colors"
+                    onClick={() => handleNav('events')}
+                    className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800/80 hover:border-slate-300 dark:hover:border-slate-700 flex items-center justify-between text-xs font-mono transition cursor-pointer"
                   >
                     <div className="flex items-center gap-3 truncate">
-                      <span className="text-slate-500 text-[11px] font-mono shrink-0">
+                      <span className="text-slate-400 text-[11px] shrink-0 font-mono">
                         {timeStr}
                       </span>
-                      <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 shrink-0" />
-                      <span className="font-semibold text-slate-200 truncate">
+                      <span className="w-1.5 h-1.5 rounded-full bg-slate-400 dark:bg-slate-500 shrink-0" />
+                      <span className="font-semibold text-slate-800 dark:text-slate-200 truncate">
                         {eventName}
                       </span>
                       <span className="text-slate-500 text-[11px] hidden sm:inline truncate">
@@ -297,21 +330,21 @@ export function Overview({ onNav }) {
 
                     <div className="flex items-center gap-2 shrink-0">
                       {ev.mitre_technique_id && (
-                        <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-cyan-950 text-cyan-300 border border-cyan-800">
+                        <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60 font-semibold">
                           {ev.mitre_technique_id}
                         </span>
                       )}
                       {ev.risk_score !== undefined && (
                         <span
                           className={`text-[10px] font-bold font-mono px-1.5 py-0.2 rounded border ${
-                            ev.risk_score >= 70
-                              ? 'bg-rose-950 text-rose-300 border-rose-800'
-                              : ev.risk_score >= 30
-                              ? 'bg-amber-950 text-amber-300 border-amber-800'
-                              : 'bg-emerald-950/60 text-emerald-300 border-emerald-800'
+                            ev.risk_score >= 50
+                              ? 'bg-red-50 dark:bg-red-950/60 text-red-700 dark:text-red-300 border-red-200 dark:border-red-800'
+                              : ev.risk_score >= 25
+                              ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+                              : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
                           }`}
                         >
-                          {ev.risk_score} pts
+                          +{ev.risk_score} pts
                         </span>
                       )}
                     </div>
@@ -323,62 +356,62 @@ export function Overview({ onNav }) {
         </Card>
       </div>
 
-      {/* Quick Operations Triggers */}
+      {/* 4. Quick SOC Operations & Simulation Triggers */}
       <Card>
         <SectionHeader
           title="Rapid SOC Operations & Simulation Triggers"
-          subtitle="Direct workflows integrated with the running SentinelTwin engine"
+          subtitle="Direct operational actions linked to live SentinelTwin engines"
         />
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-3">
           {/* Quick Action 1: Network Discovery */}
           <div
             onClick={() => handleNav('network')}
-            className="p-3.5 rounded-lg bg-slate-950/80 border border-slate-800 hover:border-cyan-500/80 cursor-pointer transition-all duration-200 group"
+            className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 hover:border-slate-400 dark:hover:border-slate-600 cursor-pointer transition group"
           >
             <div className="flex items-center justify-between mb-2">
-              <Radio className="w-4 h-4 text-cyan-400 group-hover:scale-110 transition-transform" />
-              <ArrowRight className="w-4 h-4 text-slate-600 group-hover:text-cyan-400 transition-colors" />
+              <Radio className="w-4 h-4 text-slate-700 dark:text-slate-300 group-hover:scale-110 transition-transform" />
+              <ArrowRight className="w-4 h-4 text-slate-400 group-hover:text-slate-900 dark:group-hover:text-white transition-colors" />
             </div>
-            <div className="text-xs font-mono font-bold text-slate-100">
+            <div className="text-xs font-mono font-bold text-slate-900 dark:text-slate-100">
               Run Network Discovery
             </div>
-            <p className="text-[11px] font-mono text-slate-400 mt-1">
-              Trigger high-speed 50-thread ping sweep across local subnet to map live devices.
+            <p className="text-[11px] font-mono text-slate-500 dark:text-slate-400 mt-1">
+              Trigger high-speed 50-thread ping sweep across local subnet to discover active endpoints.
             </p>
           </div>
 
           {/* Quick Action 2: Attack Propagation */}
           <div
             onClick={() => handleNav('cybertwin')}
-            className="p-3.5 rounded-lg bg-slate-950/80 border border-slate-800 hover:border-indigo-500/80 cursor-pointer transition-all duration-200 group"
+            className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 hover:border-slate-400 dark:hover:border-slate-600 cursor-pointer transition group"
           >
             <div className="flex items-center justify-between mb-2">
-              <Share2 className="w-4 h-4 text-indigo-400 group-hover:scale-110 transition-transform" />
-              <ArrowRight className="w-4 h-4 text-slate-600 group-hover:text-indigo-400 transition-colors" />
+              <Share2 className="w-4 h-4 text-slate-700 dark:text-slate-300 group-hover:scale-110 transition-transform" />
+              <ArrowRight className="w-4 h-4 text-slate-400 group-hover:text-slate-900 dark:group-hover:text-white transition-colors" />
             </div>
-            <div className="text-xs font-mono font-bold text-slate-100">
-              Simulate Lateral Attack
+            <div className="text-xs font-mono font-bold text-slate-900 dark:text-slate-100">
+              Simulate Lateral Movement
             </div>
-            <p className="text-[11px] font-mono text-slate-400 mt-1">
-              Select attack origin in Digital Twin and run multi-hop BFS blast-radius modeling.
+            <p className="text-[11px] font-mono text-slate-500 dark:text-slate-400 mt-1">
+              Designate patient zero in Digital Twin and evaluate multi-hop BFS blast-radius reachability.
             </p>
           </div>
 
           {/* Quick Action 3: Inspect Drift */}
           <div
             onClick={() => handleNav('cyberdna')}
-            className="p-3.5 rounded-lg bg-slate-950/80 border border-slate-800 hover:border-violet-500/80 cursor-pointer transition-all duration-200 group"
+            className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 hover:border-slate-400 dark:hover:border-slate-600 cursor-pointer transition group"
           >
             <div className="flex items-center justify-between mb-2">
-              <Dna className="w-4 h-4 text-violet-400 group-hover:scale-110 transition-transform" />
-              <ArrowRight className="w-4 h-4 text-slate-600 group-hover:text-violet-400 transition-colors" />
+              <Dna className="w-4 h-4 text-slate-700 dark:text-slate-300 group-hover:scale-110 transition-transform" />
+              <ArrowRight className="w-4 h-4 text-slate-400 group-hover:text-slate-900 dark:group-hover:text-white transition-colors" />
             </div>
-            <div className="text-xs font-mono font-bold text-slate-100">
+            <div className="text-xs font-mono font-bold text-slate-900 dark:text-slate-100">
               Inspect Behavioral Drift
             </div>
-            <p className="text-[11px] font-mono text-slate-400 mt-1">
-              Compare personal Welford baselines against cohort peer groups and EWMA meters.
+            <p className="text-[11px] font-mono text-slate-500 dark:text-slate-400 mt-1">
+              Compare personal Welford baselines against cohort peer groups and EWMA drift meters.
             </p>
           </div>
         </div>

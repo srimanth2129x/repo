@@ -1,9 +1,22 @@
 """
 Event Processing Pipeline
-Ingests, normalizes, stores, and routes events from Windows sensors.
+=========================
+Ingests, normalizes, stores, and routes endpoint telemetry events from Windows sensors.
+
+The 9-Stage Ingestion Pipeline:
+  Stage 1: Normalization & Schema Validation (maps raw Windows XML fields to unified schema)
+  Stage 2: Device Inventory Association & Dynamic Topology Graph Update
+  Stage 3: CyberDNA Behavioral Baseline Evaluation (Welford's algorithm z-score)
+  Stage 4: MITRE ATT&CK Tactic/Technique Rule-Based Mapping
+  Stage 5: Multi-Signal Correlation (aggregates temporal related events)
+  Stage 6: Explainable Point-Based Risk Scoring
+  Stage 7: Triage Level Gating (LOW / MEDIUM / HIGH)
+  Stage 8: Atomic SQLite Event Storage & Alert Generation (with Evidence Graph DAG)
+  Stage 9: Risk-Gated Digital Twin Attack Propagation Simulation (triggered on HIGH risk)
 """
 import json
 import logging
+import time
 from datetime import datetime, timezone
 
 from backend.database.db import get_conn
@@ -17,36 +30,49 @@ from backend.services.digital_twin.service import record_observed_connection, ru
 
 logger = logging.getLogger(__name__)
 
-
+# Mapping from Windows Security Event IDs and Sysmon Event IDs to standardized event type strings
 KNOWN_EVENT_TYPES = {
-    4624: "logon",
-    4625: "failed_logon",
-    4634: "logoff",
-    4648: "explicit_logon",
-    4688: "process_creation",
-    4689: "process_exit",
-    4698: "scheduled_task_created",
-    4720: "account_created",
-    4722: "account_enabled",
-    4726: "account_deleted",
-    4732: "group_membership_change",
-    # Sysmon
-    1: "process_creation",
-    3: "network_connection",
-    11: "file_created",
-    22: "dns_query",
+    # Windows Security Log Event IDs
+    4624: "logon",                     # Successful user/service authentication
+    4625: "failed_logon",              # Authentication failure / password guess
+    4634: "logoff",                    # Session termination
+    4648: "explicit_logon",            # Logon using explicit alternative credentials (RunAs)
+    4688: "process_creation",          # New process spawned (audit process creation)
+    4689: "process_exit",              # Process exited/terminated
+    4698: "scheduled_task_created",    # Task scheduler persistence
+    4720: "account_created",           # Local/domain user account creation
+    4722: "account_enabled",           # User account unmuted/enabled
+    4726: "account_deleted",           # User account removed
+    4732: "group_membership_change",   # Member added to privileged local group (Administrators)
+    # Microsoft Windows Sysmon Event IDs
+    1: "process_creation",             # Process create with full command line and hashes
+    3: "network_connection",           # Outbound/inbound TCP/UDP network socket connection
+    11: "file_created",                # File create / drop on filesystem
+    22: "dns_query",                   # DNS resolution query
 }
 
 
 def normalize_event(raw: dict) -> dict | None:
     """
-    Normalize raw sensor payload to SentinelTwin event format.
-    Returns None if event should be filtered.
+    Normalizes heterogeneous sensor payloads into SentinelTwin's canonical schema.
+
+    Sanitizes string lengths to prevent buffer abuse, extracts canonical timestamps,
+    resolves event types via KNOWN_EVENT_TYPES lookup, and packages auxiliary forensic
+    metadata into a nested dictionary.
+
+    Args:
+        raw (dict): Raw dictionary payload received from Windows sensor or HTTP relay.
+
+    Returns:
+        dict | None: Standardized dictionary ready for the pipeline, or None if malformed.
     """
     try:
         event_id = int(raw.get("event_id", 0))
+        # Determine normalized event_type string; fallback to 'unknown' if not in lookup table
         event_type = raw.get("event_type") or KNOWN_EVENT_TYPES.get(event_id, "unknown")
+        # Ensure an ISO-8601 UTC timestamp is present
         timestamp = raw.get("event_timestamp") or raw.get("timestamp") or datetime.now(timezone.utc).isoformat()
+        # Derive canonical device ID (dev-hostname format)
         device_id = str(raw.get("device_id") or f"dev-{raw.get('computer', 'localhost').replace('.', '-')}")
 
         normalized = {
@@ -245,6 +271,12 @@ def ingest_event(raw: dict, db_path: str = None) -> dict:
 
 
 def _ensure_sensor_device(device_id: str, hostname: str, ip: str, db_path: str = None, transport: str = "DIRECT"):
+    """
+    Ensures that a telemetry-generating device exists in the devices inventory table.
+    
+    Verifies authentication status (rejects REVOKED or PENDING devices) and updates
+    last_seen and last_event_received heartbeat timestamps on every incoming event.
+    """
     now = datetime.now(timezone.utc).isoformat()
     with get_conn(db_path) as conn:
         existing = conn.execute("SELECT auth_status FROM devices WHERE id = ?", (device_id,)).fetchone()
@@ -269,6 +301,15 @@ def _ensure_sensor_device(device_id: str, hostname: str, ip: str, db_path: str =
 
 
 def _store_event(event: dict, risk_score: float, db_path: str = None) -> int:
+    """
+    Atomically inserts a normalized event record into SQLite.
+    
+    Uses `INSERT OR IGNORE` combined with the unique index on (device_id, channel, record_id)
+    to guarantee that network retries or re-sent sensor batches never produce duplicate logs.
+
+    Returns:
+        int | None: The database rowid/lastrowid if successfully inserted, or None if skipped as duplicate.
+    """
     now = datetime.now(timezone.utc).isoformat()
     with get_conn(db_path) as conn:
         cur = conn.cursor()
@@ -296,12 +337,19 @@ def _store_event(event: dict, risk_score: float, db_path: str = None) -> int:
             risk_score, meta_str, meta_str, event.get("event_type"),
             event.get("source", "Sysmon"), event.get("status", "")
         ))
+        # If rowcount is 0, the event was ignored as a duplicate
         if cur.rowcount == 0:
             return None
         return cur.lastrowid
 
 
 def get_events(limit: int = 100, device_id: str = None, event_type: str = None, db_path: str = None) -> list[dict]:
+    """
+    Retrieves the most recent telemetry event logs from SQLite in reverse chronological order.
+    
+    Supports filtering by target device ID and event type (e.g. logon, process_creation).
+    Used by the GET /api/events endpoint and the frontend Telemetry Event Stream view.
+    """
     with get_conn(db_path) as conn:
         q = "SELECT * FROM events WHERE 1=1"
         params = []
@@ -314,4 +362,5 @@ def get_events(limit: int = 100, device_id: str = None, event_type: str = None, 
         q += " ORDER BY id DESC LIMIT ?"
         params.append(limit)
         return [dict(r) for r in conn.execute(q, params).fetchall()]
+
 

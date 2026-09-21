@@ -28,8 +28,6 @@ PYTHON_BIN=""
 for candidate in \
     "venv/Scripts/python.exe" \
     "../venv/Scripts/python.exe" \
-    "/c/Users/srima/AppData/Local/Python/pythoncore-3.14-64/python.exe" \
-    "C:/Users/srima/AppData/Local/Python/pythoncore-3.14-64/python.exe" \
     "venv/bin/python" \
     "../venv/bin/python" \
     "py" \

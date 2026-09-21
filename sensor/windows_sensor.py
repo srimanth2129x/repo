@@ -33,10 +33,178 @@ DEFAULT_SERVER = "http://127.0.0.1:5000"
 DEFAULT_INTERVAL = 5  # seconds between event polls
 DEFAULT_SENSOR_TOKEN = os.getenv("SENSOR_TOKEN", "sentinel-sensor-auth-token-xyz").strip()
 
-CHECKPOINT_FILE = Path("data") / "sensor_checkpoint.json"
-DEVICE_FILE = Path("data") / "sensor_device.json"
-OFFLINE_QUEUE_FILE = Path("data") / "sensor_offline_queue.json"
+# Build-time embedded server URL (injected during PyInstaller compilation)
+try:
+    from sensor.build_config import EMBEDDED_SERVER_URL
+except ImportError:
+    try:
+        from build_config import EMBEDDED_SERVER_URL
+    except ImportError:
+        EMBEDDED_SERVER_URL = None
+
+def get_runtime_data_dir() -> Path:
+    """
+    Resolves a safe, writable runtime directory for sensor state files
+    (sensor_device.json, sensor_checkpoint.json, sensor_offline_queue.json).
+    Guarantees:
+    - Never uses PyInstaller temporary extraction directory (sys._MEIPASS).
+    - Checks writability of candidate directories.
+    - Resolves relative to sys.executable when frozen.
+    - Falls back to %LOCALAPPDATA%\\SentinelTwin\\data if executable dir is not writable.
+    """
+    meipass = getattr(sys, "_MEIPASS", None)
+    meipass_str = str(Path(meipass).resolve()).lower() if meipass else None
+
+    def _is_safe(p: Path) -> bool:
+        if not p:
+            return False
+        if meipass_str:
+            try:
+                resolved = str(p.resolve()).lower()
+                if resolved.startswith(meipass_str):
+                    return False
+            except Exception:
+                pass
+        return True
+
+    def _test_write(p: Path) -> bool:
+        try:
+            p.mkdir(parents=True, exist_ok=True)
+            test_f = p / ".write_test"
+            test_f.write_text("ok", encoding="utf-8")
+            test_f.unlink()
+            return True
+        except Exception:
+            return False
+
+    # 1. SENTINEL_DATA_DIR environment variable
+    env_dir = os.getenv("SENTINEL_DATA_DIR")
+    if env_dir:
+        p = Path(env_dir)
+        if _is_safe(p) and _test_write(p):
+            return p.resolve()
+
+    # 2. Directory beside the executable (frozen) or project root (unfrozen)
+    if getattr(sys, "frozen", False):
+        base_dir = Path(sys.executable).resolve().parent
+    else:
+        try:
+            base_dir = Path(__file__).resolve().parent.parent
+        except Exception:
+            base_dir = Path.cwd()
+
+    cand = base_dir / "data"
+    if _is_safe(cand) and _test_write(cand):
+        return cand.resolve()
+
+    # 3. Current working directory / data
+    cwd_cand = Path.cwd() / "data"
+    if _is_safe(cwd_cand) and _test_write(cwd_cand):
+        return cwd_cand.resolve()
+
+    # 4. %LOCALAPPDATA% / SentinelTwin / data fallback
+    local_app_data = os.getenv("LOCALAPPDATA")
+    if local_app_data:
+        lad_cand = Path(local_app_data) / "SentinelTwin" / "data"
+        if _is_safe(lad_cand) and _test_write(lad_cand):
+            return lad_cand.resolve()
+
+    # 5. User home fallback
+    home_cand = Path.home() / ".sentineltwin" / "data"
+    if _is_safe(home_cand) and _test_write(home_cand):
+        return home_cand.resolve()
+
+    return Path("data").resolve()
+
+
+DATA_DIR = get_runtime_data_dir()
+CHECKPOINT_FILE = DATA_DIR / "sensor_checkpoint.json"
+DEVICE_FILE = DATA_DIR / "sensor_device.json"
+OFFLINE_QUEUE_FILE = DATA_DIR / "sensor_offline_queue.json"
+LOG_FILE = DATA_DIR / "sensor.log"
 DEFAULT_DRIVE_DIR = Path("sentinel_events")
+
+# Initialize persistent file logging
+try:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    _fh = logging.FileHandler(str(LOG_FILE), encoding="utf-8")
+    _fh.setLevel(logging.INFO)
+    _fh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
+    logger.addHandler(_fh)
+except Exception:
+    pass
+
+
+def load_sensor_config() -> dict:
+    """
+    Discovers and loads configuration from sentinel_sensor.json.
+    Priority:
+    1. Directory containing the executable (if frozen) or script / project root.
+    2. Current working directory.
+    """
+    search_dirs = []
+    if getattr(sys, "frozen", False):
+        search_dirs.append(Path(sys.executable).resolve().parent)
+    else:
+        try:
+            search_dirs.append(Path(__file__).resolve().parent.parent)
+        except Exception:
+            pass
+        try:
+            search_dirs.append(Path(__file__).resolve().parent)
+        except Exception:
+            pass
+    search_dirs.append(Path.cwd())
+
+    for d in search_dirs:
+        cfg = d / "sentinel_sensor.json"
+        if cfg.is_file():
+            try:
+                with open(cfg, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if isinstance(data, dict):
+                        logger.info(f"Loaded sensor configuration from {cfg}")
+                        return data
+            except Exception as e:
+                logger.warning(f"Failed to parse configuration file {cfg}: {e}")
+    return {}
+
+
+_MUTEX_HANDLE = None
+
+
+def acquire_single_instance_lock() -> bool:
+    """
+    Acquires a single-instance Windows Named Mutex to prevent duplicate sensor instances.
+    Returns True if lock acquired, False if another instance is already running.
+    """
+    global _MUTEX_HANDLE
+    if platform.system() != "Windows":
+        return True
+
+    try:
+        import ctypes
+        ERROR_ALREADY_EXISTS = 183
+        mutex_name = "Global\\SentinelTwin_Sensor_SingleInstance_Mutex"
+        handle = ctypes.windll.kernel32.CreateMutexW(None, False, mutex_name)
+        err = ctypes.windll.kernel32.GetLastError()
+
+        # If Global\ failed with access denied (error 5) or invalid handle, fallback to Local namespace
+        if not handle or err == 5:
+            mutex_name = "SentinelTwin_Sensor_SingleInstance_Mutex"
+            handle = ctypes.windll.kernel32.CreateMutexW(None, False, mutex_name)
+            err = ctypes.windll.kernel32.GetLastError()
+
+        if err == ERROR_ALREADY_EXISTS:
+            if handle:
+                ctypes.windll.kernel32.CloseHandle(handle)
+            return False
+
+        _MUTEX_HANDLE = handle
+        return True
+    except Exception as e:
+        logger.warning(f"Could not initialize single-instance mutex: {e}")
+        return True
 
 WATCHED_EVENT_IDS = {
     # Security log
@@ -79,48 +247,77 @@ def normalize_server_url(server: str) -> str:
     return clean
 
 
-def get_or_create_device_id(device_file: Path = DEVICE_FILE) -> tuple[str, str | None]:
+def get_or_create_device_id(device_file: Path | None = None) -> tuple[str, str | None]:
     """
     Retrieves or generates a persistent device ID (ST-DEVICE-XXXXXXXX) and stored token.
     Persisted across sensor restarts in data/sensor_device.json.
     """
-    if device_file.exists():
+    target_file = device_file or DEVICE_FILE
+    if not target_file.exists():
+        # Safe migration check from LocalAppData if migrating deployment locations
+        local_app_data = os.getenv("LOCALAPPDATA")
+        if local_app_data:
+            alt_file = Path(local_app_data) / "SentinelTwin" / "data" / "sensor_device.json"
+            if alt_file.exists() and alt_file != target_file:
+                try:
+                    target_file.parent.mkdir(parents=True, exist_ok=True)
+                    import shutil
+                    shutil.copy2(alt_file, target_file)
+                    logger.info(f"Migrated device credentials from {alt_file} to {target_file}")
+                except Exception:
+                    pass
+
+    if target_file.exists():
         try:
-            with open(device_file, "r", encoding="utf-8") as f:
+            with open(target_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 dev_id = data.get("device_id")
                 token = data.get("token")
                 if dev_id:
                     return dev_id, token
         except Exception as e:
-            logger.warning(f"Could not read device file {device_file}: {e}")
+            logger.warning(f"Could not read device file {target_file}: {e}")
 
     # Generate new device ID based on hostname hash + random entropy
     h = hashlib.sha256(f"{get_hostname()}-{uuid.uuid4().hex}".encode()).hexdigest()[:8].upper()
     dev_id = f"ST-DEVICE-{h}"
-    save_device_credentials(dev_id, None, device_file=device_file)
+    save_device_credentials(dev_id, None, device_file=target_file)
     logger.info(f"Initialized persistent device identity: {dev_id}")
     return dev_id, None
 
 
-def save_device_credentials(device_id: str, token: str | None, device_file: Path = DEVICE_FILE):
+def save_device_credentials(device_id: str, token: str | None, device_file: Path | None = None):
     """Persists device ID and authorization token."""
+    target_file = device_file or DEVICE_FILE
     try:
-        device_file.parent.mkdir(parents=True, exist_ok=True)
+        target_file.parent.mkdir(parents=True, exist_ok=True)
         data = {
             "device_id": device_id,
             "hostname": get_hostname(),
             "token": token,
             "updated_at": datetime.now(timezone.utc).isoformat()
         }
-        with open(device_file, "w", encoding="utf-8") as f:
+        with open(target_file, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
     except Exception as e:
-        logger.warning(f"Failed to save device credentials to {device_file}: {e}")
+        logger.warning(f"Failed to save device credentials to {target_file}: {e}")
 
 
 def load_checkpoints(checkpoint_file: Path | None = None) -> dict:
     target_file = checkpoint_file or CHECKPOINT_FILE
+    if not target_file.exists():
+        local_app_data = os.getenv("LOCALAPPDATA")
+        if local_app_data:
+            alt_file = Path(local_app_data) / "SentinelTwin" / "data" / "sensor_checkpoint.json"
+            if alt_file.exists() and alt_file != target_file:
+                try:
+                    target_file.parent.mkdir(parents=True, exist_ok=True)
+                    import shutil
+                    shutil.copy2(alt_file, target_file)
+                    logger.info(f"Migrated checkpoints from {alt_file} to {target_file}")
+                except Exception:
+                    pass
+
     if target_file.exists():
         try:
             with open(target_file, "r", encoding="utf-8") as f:
@@ -152,16 +349,83 @@ def probe_transport(server_url: str, timeout: float = 1.5) -> bool:
         return False
 
 
+def check_environment(server_url: str, channels: list[str]) -> dict:
+    """
+    Performs first-run diagnostic checks:
+    1. Runtime data directory writability
+    2. Windows Security Event Log access
+    3. Sysmon availability
+    4. Backend network reachability
+    """
+    status = {
+        "data_dir_writable": False,
+        "security_log_accessible": False,
+        "sysmon_accessible": False,
+        "backend_reachable": False,
+        "active_channels": []
+    }
+
+    # 1. Check runtime data dir writability
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        test_file = DATA_DIR / ".diag_write_test"
+        test_file.write_text("ok", encoding="utf-8")
+        test_file.unlink()
+        status["data_dir_writable"] = True
+        logger.info(f"[+] Runtime Data Directory : {DATA_DIR.resolve()} [WRITABLE]")
+    except Exception as e:
+        logger.error(f"[-] Runtime Data Directory : {DATA_DIR.resolve()} [NOT WRITABLE: {e}]")
+
+    # 2. Check Windows Event Log access
+    try:
+        import win32evtlog
+        try:
+            h = win32evtlog.OpenEventLog(None, "Security")
+            win32evtlog.CloseEventLog(h)
+            status["security_log_accessible"] = True
+            status["active_channels"].append("Security")
+            logger.info("[+] Windows Security Log   : Accessible [OK]")
+        except Exception as e:
+            logger.warning(f"[!] Windows Security Log   : Access Limited ({e})")
+            logger.warning("    NOTE: Administrator privileges recommended to monitor Security events (Logon, Process Creation).")
+
+        # 3. Check Sysmon availability
+        try:
+            h_sys = win32evtlog.OpenEventLog(None, "Microsoft-Windows-Sysmon/Operational")
+            win32evtlog.CloseEventLog(h_sys)
+            status["sysmon_accessible"] = True
+            status["active_channels"].append("Microsoft-Windows-Sysmon/Operational")
+            logger.info("[+] Sysmon Telemetry       : Accessible (Microsoft-Windows-Sysmon/Operational) [OK]")
+        except Exception:
+            logger.info("[-] Sysmon Telemetry       : Channel not found.")
+            logger.info("    NOTE: Sysmon is optional. Standard Windows Security events will be monitored.")
+            logger.info("    To install Sysmon: https://learn.microsoft.com/en-us/sysinternals/downloads/sysmon")
+    except ImportError:
+        logger.error("[-] pywin32 / win32evtlog is not available.")
+
+    # 4. Check Backend Connectivity
+    is_up = probe_transport(server_url, timeout=2.0)
+    status["backend_reachable"] = is_up
+    if is_up:
+        logger.info(f"[+] Backend Server Reachable: {server_url} [ONLINE]")
+    else:
+        logger.warning(f"[!] Backend Server Reachable: {server_url} [OFFLINE / UNREACHABLE]")
+        logger.warning("    NOTE: Events will be buffered offline in sensor_offline_queue.json until server is online.")
+
+    return status
+
+
 def register_with_server(
     server_url: str,
     device_id: str,
-    device_file: Path = DEVICE_FILE,
+    device_file: Path | None = None,
     token: str = None
 ) -> tuple[str, str | None]:
     """
     Registers the device with the central server via POST /api/sensor/register.
     Returns (auth_status, token).
     """
+    target_file = device_file or DEVICE_FILE
     url = f"{normalize_server_url(server_url)}/api/sensor/register"
     payload = {
         "device_id": device_id,
@@ -179,7 +443,7 @@ def register_with_server(
         status = data.get("status", "PENDING").upper()
         new_token = data.get("token") or token
         if new_token:
-            save_device_credentials(device_id, new_token, device_file=device_file)
+            save_device_credentials(device_id, new_token, device_file=target_file)
         return status, new_token
     except Exception as e:
         logger.warning(f"Registration probe to {server_url} failed: {e}")
@@ -266,17 +530,18 @@ def write_crash_safe_drive_batch(
         return False, batch_id
 
 
-def enqueue_offline(events: list[dict], queue_file: Path = OFFLINE_QUEUE_FILE):
+def enqueue_offline(events: list[dict], queue_file: Path | None = None):
     """
     Appends events to the local offline queue file.
     Does NOT advance the checkpoint.
     """
     if not events:
         return
+    target_file = queue_file or OFFLINE_QUEUE_FILE
     queue = []
-    if queue_file.exists():
+    if target_file.exists():
         try:
-            with open(queue_file, "r", encoding="utf-8") as f:
+            with open(target_file, "r", encoding="utf-8") as f:
                 queue = json.load(f)
                 if not isinstance(queue, list):
                     queue = []
@@ -285,12 +550,12 @@ def enqueue_offline(events: list[dict], queue_file: Path = OFFLINE_QUEUE_FILE):
 
     queue.extend(events)
     try:
-        queue_file.parent.mkdir(parents=True, exist_ok=True)
-        with open(queue_file, "w", encoding="utf-8") as f:
+        target_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(target_file, "w", encoding="utf-8") as f:
             json.dump(queue, f, indent=2)
         logger.info(f"Queued {len(events)} events offline (total buffered: {len(queue)})")
     except Exception as e:
-        logger.error(f"Failed to append to offline queue {queue_file}: {e}")
+        logger.error(f"Failed to append to offline queue {target_file}: {e}")
 
 
 def drain_offline_queue(
@@ -298,22 +563,23 @@ def drain_offline_queue(
     device_id: str,
     token: str,
     session: requests.Session = None,
-    queue_file: Path = OFFLINE_QUEUE_FILE
+    queue_file: Path | None = None
 ) -> int:
     """
     Drains buffered offline events to the server in chronological order via /api/events/batch.
     Removes drained events from disk upon successful acknowledgement.
     """
-    if not queue_file.exists():
+    target_file = queue_file or OFFLINE_QUEUE_FILE
+    if not target_file.exists():
         return 0
 
     try:
-        with open(queue_file, "r", encoding="utf-8") as f:
+        with open(target_file, "r", encoding="utf-8") as f:
             events = json.load(f)
             if not isinstance(events, list) or not events:
                 return 0
     except Exception as e:
-        logger.warning(f"Failed to read offline queue {queue_file}: {e}")
+        logger.warning(f"Failed to read offline queue {target_file}: {e}")
         return 0
 
     batch_id = f"offline-{device_id}-{int(time.time() * 1000)}-{uuid.uuid4().hex[:6]}"
@@ -336,7 +602,7 @@ def drain_offline_queue(
         r = client.post(url, json=payload, headers=headers, timeout=10.0)
         if r.status_code in (200, 201):
             logger.info(f"Successfully drained {len(events)} offline events to {server_url}")
-            queue_file.unlink(missing_ok=True)
+            target_file.unlink(missing_ok=True)
             return len(events)
         elif r.status_code == 403:
             logger.warning("Device authorization required before draining offline queue (HTTP 403)")
@@ -542,8 +808,8 @@ def send_event(
 
 
 def run(
-    server: str = DEFAULT_SERVER,
-    interval: int = DEFAULT_INTERVAL,
+    server: str = None,
+    interval: int = None,
     private_server: str = None,
     drive_dir: str = None
 ):
@@ -557,6 +823,23 @@ def run(
         logger.info("Run on a Windows machine to collect endpoint telemetry.")
         sys.exit(1)
 
+    if not acquire_single_instance_lock():
+        print("[-] Another instance of SentinelTwin Sensor is already running on this machine.", file=sys.stderr)
+        print("[-] Exiting cleanly to prevent duplicate event collection and checkpoint conflicts.", file=sys.stderr)
+        logger.warning("Another instance of SentinelTwin Sensor is already running. Exiting cleanly.")
+        return 0
+
+    cfg = load_sensor_config()
+    base_server = EMBEDDED_SERVER_URL or DEFAULT_SERVER
+    if server is None:
+        server = os.getenv("SENTINEL_SERVER") or cfg.get("server") or base_server
+    if interval is None:
+        interval = int(os.getenv("SENTINEL_INTERVAL") or cfg.get("interval") or DEFAULT_INTERVAL)
+    if private_server is None:
+        private_server = os.getenv("SENTINEL_PRIVATE_SERVER") or cfg.get("private_server") or None
+    if drive_dir is None:
+        drive_dir = os.getenv("SENTINEL_DRIVE_DIR") or cfg.get("drive_dir") or None
+
     device_id, stored_token = get_or_create_device_id()
     token = stored_token or DEFAULT_SENSOR_TOKEN
     drive_path = Path(drive_dir) if drive_dir else DEFAULT_DRIVE_DIR
@@ -564,6 +847,31 @@ def run(
 
     hostname = get_hostname()
     local_ip = get_local_ip()
+    channels = ["Security", "Microsoft-Windows-Sysmon/Operational"]
+
+    # First-run environment and diagnostics check
+    diag = check_environment(server, channels)
+    if diag.get("active_channels"):
+        channels = diag["active_channels"]
+
+    banner = f"""
+======================================================================
+           SENTINELTWIN WINDOWS TELEMETRY SENSOR (v1.0.0)
+======================================================================
+ Device ID       : {device_id}
+ Hostname        : {hostname}
+ Source IP       : {local_ip}
+ Target Server   : {server}
+ Private Server  : {private_server or 'None configured'}
+ Polling Rate    : {interval}s
+ Event Channels  : {', '.join(channels)}
+ Runtime Dir     : {DATA_DIR.resolve()}
+ Log File        : {LOG_FILE.resolve()}
+ Process PID     : {os.getpid()}
+======================================================================
+"""
+    print(banner)
+
     logger.info(f"SentinelTwin Sensor starting on {hostname} ({local_ip})")
     logger.info(f"Device ID: {device_id}")
     logger.info(f"Preferred Server: {server} (polling interval: {interval}s)")
@@ -572,7 +880,6 @@ def run(
     logger.info(f"Google Drive Relay Directory: {drive_path}")
     logger.info("This sensor is authorized to collect endpoint telemetry on this machine.")
 
-    channels = ["Security", "Microsoft-Windows-Sysmon/Operational"]
     checkpoints = load_checkpoints()
     if checkpoints:
         logger.info(f"Loaded existing checkpoints: {checkpoints}")
@@ -588,7 +895,6 @@ def run(
     })
 
     # Initial registration attempt
-    active_server = server
     reg_status = "UNKNOWN"
     if probe_transport(server):
         reg_status, new_token = register_with_server(server, device_id, token=token)
@@ -597,12 +903,20 @@ def run(
             session.headers["X-Sensor-Token"] = token
         logger.info(f"Registration status with direct server: {reg_status}")
     elif private_server and probe_transport(private_server):
-        active_server = private_server
         reg_status, new_token = register_with_server(private_server, device_id, token=token)
         if new_token:
             token = new_token
             session.headers["X-Sensor-Token"] = token
         logger.info(f"Registration status with private server: {reg_status}")
+
+    if reg_status == "PENDING":
+        logger.info("[*] Device registered with central server.")
+        logger.info("[*] Status: PENDING — Awaiting administrator approval in the SentinelTwin dashboard.")
+        logger.info("[*] Please approve this device on the central server (Devices tab).")
+    elif reg_status == "AUTHORIZED":
+        logger.info("[+] Device AUTHORIZED by administrator!")
+        logger.info("[+] Beginning live telemetry streaming.")
+        logger.info(f"[+] Monitoring channels: {', '.join(channels)}")
 
     total_sent = 0
 
@@ -627,8 +941,41 @@ def run(
                 current_mode = "OFFLINE_QUEUE"
                 target_url = None
 
-            # Auto-recovery: If Direct or Private HTTP is back online, drain offline queue first
+            # Interactive Approval Gating & Polling Loop
             if current_mode in ("DIRECT", "PRIVATE_NETWORK"):
+                if reg_status == "PENDING":
+                    poll_server = target_url or server
+                    poll_status, new_tok = register_with_server(poll_server, device_id, token=token)
+                    if new_tok:
+                        token = new_tok
+                        session.headers["X-Sensor-Token"] = token
+                    if poll_status == "AUTHORIZED":
+                        reg_status = "AUTHORIZED"
+                        logger.info("[+] Device AUTHORIZED by administrator!")
+                        logger.info("[+] Beginning live telemetry streaming.")
+                        logger.info(f"[+] Monitoring channels: {', '.join(channels)}")
+                    elif poll_status == "REVOKED":
+                        reg_status = "REVOKED"
+                        logger.warning("[-] Device authorization REVOKED by administrator.")
+                        time.sleep(interval)
+                        continue
+                    else:
+                        logger.info("[*] Status: PENDING — Waiting for administrator approval in dashboard...")
+                        time.sleep(interval)
+                        continue
+                elif reg_status == "REVOKED":
+                    poll_server = target_url or server
+                    poll_status, new_tok = register_with_server(poll_server, device_id, token=token)
+                    if poll_status == "AUTHORIZED":
+                        reg_status = "AUTHORIZED"
+                        logger.info("[+] Device re-authorized by administrator! Resuming telemetry streaming.")
+                    else:
+                        logger.warning("[-] Device is REVOKED. Telemetry streaming paused.")
+                        time.sleep(interval)
+                        continue
+
+            # Auto-recovery: If Direct or Private HTTP is back online and authorized, drain offline queue first
+            if current_mode in ("DIRECT", "PRIVATE_NETWORK") and reg_status == "AUTHORIZED":
                 drained = drain_offline_queue(target_url, device_id, token, session=session)
                 if drained > 0:
                     total_sent += drained
@@ -663,10 +1010,16 @@ def run(
                         elif status == "duplicate":
                             batch_duplicates += 1
                             channel_cp = max(channel_cp, ev["record_id"])
+                        elif status == "forbidden":
+                            logger.warning("[-] Telemetry rejected (403 Forbidden). Device may be PENDING approval or REVOKED.")
+                            reg_status = "PENDING"
+                            batch_failed += 1
+                            delivery_ok = False
+                            enqueue_offline(events[events.index(ev):])
+                            break
                         else:
                             batch_failed += 1
                             delivery_ok = False
-                            # Buffer undelivered events to offline queue and do NOT advance checkpoint
                             enqueue_offline(events[events.index(ev):])
                             break
 
@@ -711,11 +1064,24 @@ def run(
 
 if __name__ == "__main__":
     import argparse
+
+    cfg = load_sensor_config()
+    env_server = os.getenv("SENTINEL_SERVER")
+    env_interval = os.getenv("SENTINEL_INTERVAL")
+    env_private_server = os.getenv("SENTINEL_PRIVATE_SERVER")
+    env_drive_dir = os.getenv("SENTINEL_DRIVE_DIR")
+
+    base_server = EMBEDDED_SERVER_URL or DEFAULT_SERVER
+    default_server = env_server or cfg.get("server") or base_server
+    default_interval = int(env_interval or cfg.get("interval") or DEFAULT_INTERVAL)
+    default_private = env_private_server or cfg.get("private_server") or None
+    default_drive = env_drive_dir or cfg.get("drive_dir") or None
+
     parser = argparse.ArgumentParser(description="SentinelTwin Windows Sensor")
-    parser.add_argument("--server", default=DEFAULT_SERVER, help="Central SentinelTwin server URL")
-    parser.add_argument("--interval", type=int, default=DEFAULT_INTERVAL, help="Polling interval in seconds")
-    parser.add_argument("--private-server", default=None, help="Private/Overlay network server URL")
-    parser.add_argument("--drive-dir", default=None, help="Local Google Drive sync/relay folder path")
+    parser.add_argument("--server", default=default_server, help=f"Central SentinelTwin server URL (default: {default_server})")
+    parser.add_argument("--interval", type=int, default=default_interval, help=f"Polling interval in seconds (default: {default_interval})")
+    parser.add_argument("--private-server", default=default_private, help="Private/Overlay network server URL")
+    parser.add_argument("--drive-dir", default=default_drive, help="Local Google Drive sync/relay folder path")
     args = parser.parse_args()
 
     run(

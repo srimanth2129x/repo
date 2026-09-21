@@ -1,0 +1,143 @@
+<USER_REQUEST>
+Absolutely bro. Here’s the **current overall SentinelTwin vision**, including all phases, in a way you can use to explain the project to a teammate, mentor, or startup person.
+
+## 🛡️ SentinelTwin — Project Overview
+
+**SentinelTwin** is a behavior-based cybersecurity platform that continuously learns what is normal for users and devices, detects abnormal or suspicious behavior, calculates explainable risk, and uses a lightweight **Digital Twin graph** to understand how a potential attack could propagate through an environment.
+
+The key idea is:
+
+> **Don't just detect that something suspicious happened — understand whether it is abnormal, how risky it is, and what could potentially happen next.**
+
+---
+
+# Phase 1 — Working Software Prototype
+
+**Goal:** Build the core detection and analysis engine.
+
+### 1. Data Collection
+
+* Windows Event Logs
+* Sysmon data
+
+### 2. Filtering Engine
+
+* Remove unnecessary noise
+* Normalize events
+* Reduce duplicate/redundant data
+
+### 3. CyberDNA Engine
+
+Learns behavioral patterns using:
+
+* **Personal baseline** — what is normal for this user/device
+* **Peer-group baseline** — what is normal for similar users/devices
+* **Behavioral drift detection**
+* Welford online statistics for continuously updating baselines
+
+### 4. Threat Detection & Risk Engine
+
+Instead of relying on a single suspicious event:
+
+* correlate multiple signals
+* calculate an explainable point-based risk score
+* identify why behavior is suspicious
+
+### 5. Risk Triage / Gate
+
+Classifies activity into:
+
+**LOW → MEDIUM → HIGH**
+
+The gate determines when deeper analysis is necessary.
+
+### 6. Digital Twin
+
+A lightweight **NetworkX graph**, not a virtual machine.
+
+It represents relationships such as:
+
+**User → Device → Process → Network Destination**
+
+The graph can update from security events and periodically refresh its topology.
+
+### 7. Attack Propagation Analysis
+
+For high-risk activity, SentinelTwin analyzes the graph to identify **potential attack paths**.
+
+It answers:
+
+> "If this entity is compromised, what could potentially be reached next?"
+
+### 8. Dashboard
+
+Shows:
+
+* alerts
+* risk score
+* risk level
+* behavioral deviations
+* contributing signals
+* Digital Twin graph
+* potential attack paths
+* explanations
+
+**Phase 1 outcome:** A working behavior-based threat detection and attack-propagation analysis prototype.
+
+---
+
+# Phase 2 — Intelligent Security Platform
+
+**Goal:** Move from a prototype into a much more capable security platform.
+
+Potential additions:
+
+* More sophisticated behavioral modeling
+* Better anomaly detection
+* Improved peer-group intelligence
+* More advanced attack-path analysis
+* Larger/more dynamic Digital Twin environments
+* Historical threat analysis
+* Threat intelligence integration
+* Better alert prioritization
+* Cross-user/device behavior relationships
+* Improved dashboards and investigation workflows
+
+The focus is **better detection + better investigation**, rather than automatic response.
+
+---
+
+# Phase 3 — Autonomous Defense
+
+**Goal:** Allow SentinelTwin to respond to confirmed/high-confidence threats.
+
+Potential capabilities:
+
+* Account isolation
+* Device quarantine
+* IP/network blocking
+* Automated containment
+* Automated incident-response workflows
+* Adaptive security policies
+
+But importantly, this should have a **Human-in-the-Loop / explicit-consent workflow** for important defensive actions rather than blindly allowing the system to take disruptive actions.
+
+The progression is:
+
+**Detect → Understand → Recommend → Confirm → Respond**
+
+rather than immediately:
+
+**Detect → Automatically block everything**
+
+---
+
+# Phase 4 — Enterprise SentinelTwin
+
+**Goal:** Turn SentinelTwin into a scalable enterprise cybersecurity platform.
+
+Potential capabilities:
+
+* Multi-organization deployment
+* Centralized security management
+* Large-scale endpoint monitoring

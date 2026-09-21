@@ -135,7 +135,10 @@ class NetworkDiscoveryManager:
         dns_name = self._query_dns(ip)
         discovered_name = netbios_name or dns_name
 
-        if discovered_name and not discovered_name.lower().startswith(("node-", "host-", "endpoint-")):
+        if discovered_name and discovered_name.lower().startswith("node-"):
+            discovered_name = "Workstation-" + discovered_name[5:]
+
+        if discovered_name and not discovered_name.lower().startswith(("workstation-", "node-", "host-", "endpoint-")):
             d_lower = discovered_name.lower()
             if any(k in d_lower for k in ("desktop", "laptop", "pc", "win", "macbook", "workstation")):
                 return discovered_name, "Windows / PC Host", "Laptop / PC", 2
@@ -149,11 +152,17 @@ class NetworkDiscoveryManager:
         # 3. Match exact OUI database
         if oui in OUI_MAP:
             vendor, default_name, dev_type, crit = OUI_MAP[oui]
-            return (discovered_name or default_name), vendor, dev_type, crit
+            name = discovered_name or default_name
+            if name.lower().startswith("node-"):
+                name = "Workstation-" + name[5:]
+            return name, vendor, dev_type, crit
 
         # 4. Check if PC via open Windows ports
         if self._check_pc_ports(ip):
-            return (discovered_name or f"Workstation-{ip.split('.')[-1]}"), "PC / Workstation Host", "Laptop / PC", 2
+            name = discovered_name or f"Workstation-{ip.split('.')[-1]}"
+            if name.lower().startswith("node-"):
+                name = "Workstation-" + name[5:]
+            return name, "PC / Workstation Host", "Laptop / PC", 2
 
         # 5. Check for Private / Randomized MAC addresses (Modern Smartphones use 2, 6, A, E)
         is_private_mac = False
@@ -163,8 +172,11 @@ class NetworkDiscoveryManager:
         if is_private_mac:
             return (discovered_name or "Mobile Phone"), "Smartphone / Mobile", "Mobile", 1
 
-        # 6. Default generic fallback
-        return (discovered_name or f"Node-{ip.split('.')[-1]}"), "Network Endpoint", "Laptop / PC", 2
+        # 6. Default generic fallback (Workstation)
+        fallback_name = discovered_name or f"Workstation-{ip.split('.')[-1]}"
+        if fallback_name.lower().startswith("node-"):
+            fallback_name = "Workstation-" + fallback_name[5:]
+        return fallback_name, "PC / Workstation Host", "Laptop / PC", 2
 
     def _get_arp_table(self) -> dict:
         """Reads the OS ARP cache."""

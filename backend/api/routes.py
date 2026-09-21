@@ -199,11 +199,16 @@ def trigger_network_discover():
                 ))
 
             cur.execute("SELECT * FROM devices ORDER BY last_seen DESC")
-            all_devices = [dict(r) for r in cur.fetchall()]
+            all_devices = []
+            for r in cur.fetchall():
+                d_item = dict(r)
+                if d_item.get("hostname") and str(d_item["hostname"]).lower().startswith("node-"):
+                    d_item["hostname"] = "Workstation-" + d_item["hostname"][5:]
+                all_devices.append(d_item)
 
         return jsonify({"discovered": len(devices), "devices": all_devices}), 200
     except Exception as e:
-        traceback.print_exc()
+        logger.error(f"Network discovery error: {e}")
         return jsonify({"error": str(e), "devices": []}), 500
 
 
@@ -223,6 +228,9 @@ def get_devices():
                 # Never expose security tokens or token hashes to frontend
                 d.pop("sensor_token_hash", None)
                 d.pop("sensor_token", None)
+
+                if d.get("hostname") and str(d["hostname"]).lower().startswith("node-"):
+                    d["hostname"] = "Workstation-" + d["hostname"][5:]
 
                 last_seen_str = d.get("last_seen")
                 is_offline = False
@@ -322,6 +330,11 @@ def register_sensor():
         else:
             assigned_ip = f"192.168.1.{abs(hash(device_id)) % 250 + 2}"
 
+        # Guarantee uniqueness across device table to satisfy UNIQUE constraint
+        existing_with_ip = conn.execute("SELECT id FROM devices WHERE ip_address = ?", (assigned_ip,)).fetchone()
+        if existing_with_ip:
+            assigned_ip = f"{assigned_ip}_{device_id[-6:]}"
+
         conn.execute("""
             INSERT INTO devices (
                 id, hostname, ip_address, mac_address, vendor, device_type,
@@ -382,6 +395,8 @@ def handle_single_device(device_id):
             d = dict(row)
             d.pop("sensor_token_hash", None)
             d.pop("sensor_token", None)
+            if d.get("hostname") and str(d["hostname"]).lower().startswith("node-"):
+                d["hostname"] = "Workstation-" + d["hostname"][5:]
             return jsonify(d), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
