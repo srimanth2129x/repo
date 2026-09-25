@@ -572,6 +572,25 @@ def get_events():
     return jsonify(rows), 200
 
 
+@api_bp.route("/events/clear", methods=["POST", "OPTIONS"])
+def clear_events():
+    """Purges all ingested telemetry event logs and processed batch tracking for a clean reset."""
+    if request.method == "OPTIONS":
+        return jsonify({"status": "ok"}), 200
+    try:
+        with get_conn(_get_target_db()) as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT COUNT(*) as cnt FROM events")
+            cnt = cur.fetchone()["cnt"]
+            cur.execute("DELETE FROM events")
+            cur.execute("DELETE FROM processed_batches")
+        return jsonify({"status": "cleared", "deleted_count": cnt}), 200
+    except Exception as e:
+        logger.error(f"Failed to clear events: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+
 @api_bp.route("/drive/sync", methods=["POST", "OPTIONS"])
 def trigger_drive_sync():
     """Triggers synchronization of Google Drive fallback relay batches."""

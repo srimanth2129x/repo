@@ -21,7 +21,7 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { Activity, Search, RefreshCw, Filter, Terminal, Laptop, Trash2, RotateCcw, EyeOff, ShieldCheck, CheckCircle } from 'lucide-react'
-import { getEvents } from '../api/client'
+import { getEvents, clearEvents } from '../api/client'
 import { Card, SectionHeader, Spinner, EmptyState } from '../components/ui/Card'
 import { useTheme } from '../context/ThemeContext'
 
@@ -33,6 +33,10 @@ export function Events() {
   const [loading, setLoading] = useState(true)
   // Filter state for device_id and event_type inputs
   const [filter, setFilter] = useState({ device_id: '', event_type: '' })
+
+  // Live Auto-Refresh frequency ('off' | '3s' | '5s' | '10s')
+  const [autoRefreshInterval, setAutoRefreshInterval] = useState('5s')
+  const [isPurging, setIsPurging] = useState(false)
 
   // --- Visibility Boundary States ---
   // Persisted in localStorage so the user's cleared view persists across page refreshes.
@@ -64,6 +68,22 @@ export function Events() {
     load()
   }, [load])
 
+  // Live auto-refresh interval effect
+  useEffect(() => {
+    if (autoRefreshInterval === 'off') return
+    const ms = autoRefreshInterval === '3s' ? 3000 : autoRefreshInterval === '10s' ? 10000 : 5000
+    const timer = setInterval(() => {
+      getEvents({ limit: 200, ...filter })
+        .then((res) => {
+          if (Array.isArray(res.data)) {
+            setEvents(res.data)
+          }
+        })
+        .catch((err) => console.debug('Auto-refresh error:', err))
+    }, ms)
+    return () => clearInterval(timer)
+  }, [autoRefreshInterval, filter])
+
   /**
    * Sets the visibility boundary to hide past events without deleting database records.
    * Called when user confirms "Clear Events" in the modal.
@@ -89,6 +109,23 @@ export function Events() {
     localStorage.removeItem('sentinel_events_cleared_max_id')
     setClearedAt(null)
     setClearedMaxId(0)
+  }
+
+  /**
+   * Permanently deletes all events from SQLite database.
+   */
+  const handlePurgeDatabase = async () => {
+    try {
+      setIsPurging(true)
+      await clearEvents()
+      handleRestoreHistory()
+      setEvents([])
+      setShowClearModal(false)
+    } catch (err) {
+      console.error('Failed to purge database events:', err)
+    } finally {
+      setIsPurging(false)
+    }
   }
 
   /**
@@ -179,11 +216,31 @@ export function Events() {
             </button>
           )}
 
+          {/* Live Auto-Refresh Selector */}
+          <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 px-2 py-1 rounded-lg text-xs font-mono">
+            <span className={`w-2 h-2 rounded-full ${autoRefreshInterval !== 'off' ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
+            <span className="text-[10px] text-slate-500 uppercase font-semibold mr-0.5">Live:</span>
+            {['off', '3s', '5s', '10s'].map((opt) => (
+              <button
+                key={opt}
+                onClick={() => setAutoRefreshInterval(opt)}
+                className={`px-1.5 py-0.5 rounded text-[10px] uppercase font-bold transition cursor-pointer ${
+                  autoRefreshInterval === opt
+                    ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
+                }`}
+                title={`Set auto-refresh to ${opt}`}
+              >
+                {opt}
+              </button>
+            ))}
+          </div>
+
           <button
             onClick={() => setShowClearModal(true)}
-            disabled={visibleEvents.length === 0}
+            disabled={visibleEvents.length === 0 && events.length === 0}
             className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-mono flex items-center gap-1.5 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-            title="Clear events from view without deleting from database"
+            title="Clear events view or purge from database"
           >
             <EyeOff className="w-3.5 h-3.5" />
             Clear Events
@@ -357,33 +414,52 @@ export function Events() {
               </div>
               <div className="flex-1">
                 <h3 className="text-sm font-mono font-bold text-slate-900 dark:text-slate-100">
-                  Clear Events View
+                  Manage Telemetry Event Logs
                 </h3>
                 <p className="text-xs font-mono text-slate-600 dark:text-slate-300 mt-2 leading-relaxed">
-                  Clear all events from the current view? Your events will remain safely stored in the database.
+                  Choose how you would like to handle the telemetry event stream:
                 </p>
-                <div className="mt-3 p-2.5 rounded bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-[11px] font-mono text-slate-500 dark:text-slate-400">
-                  <span className="font-semibold text-emerald-600 dark:text-emerald-400">Database Safe:</span> Records are never deleted. New events will appear as they arrive, and you can restore historical events at any time.
+                <div className="mt-3 space-y-2 text-[11px] font-mono">
+                  <div className="p-2.5 rounded bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400">
+                    <span className="font-semibold text-emerald-600 dark:text-emerald-400">Hide from View:</span> Only hides past events from this browser tab. All historical records remain safely in the database and can be restored.
+                  </div>
+                  <div className="p-2.5 rounded bg-red-500/10 border border-red-500/20 text-red-700 dark:text-red-400">
+                    <span className="font-semibold">Purge Database:</span> Permanently deletes all event logs from the SQLite database. Useful for resetting event counters before a fresh demo or test run.
+                  </div>
                 </div>
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2.5 mt-5 pt-3 border-t border-slate-100 dark:border-slate-800/80">
+            <div className="flex flex-wrap items-center justify-between gap-2.5 mt-5 pt-3 border-t border-slate-100 dark:border-slate-800/80">
               <button
                 type="button"
                 onClick={() => setShowClearModal(false)}
-                className="px-3.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-mono transition cursor-pointer"
+                className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-mono transition cursor-pointer"
               >
                 Cancel
               </button>
-              <button
-                type="button"
-                onClick={handleClearEvents}
-                className="px-3.5 py-1.5 rounded-lg bg-slate-900 dark:bg-slate-100 hover:bg-slate-800 dark:hover:bg-white text-white dark:text-slate-900 text-xs font-mono font-semibold transition cursor-pointer flex items-center gap-1.5"
-              >
-                <EyeOff className="w-3.5 h-3.5" />
-                Clear Events
-              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={isPurging}
+                  onClick={handlePurgeDatabase}
+                  className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-mono font-semibold transition cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                  title="Permanently wipe events table in SQLite"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  {isPurging ? 'Purging...' : 'Purge Database'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleClearEvents}
+                  className="px-3 py-1.5 rounded-lg bg-slate-900 dark:bg-slate-100 hover:bg-slate-800 dark:hover:bg-white text-white dark:text-slate-900 text-xs font-mono font-semibold transition cursor-pointer flex items-center gap-1.5"
+                >
+                  <EyeOff className="w-3.5 h-3.5" />
+                  Hide from View
+                </button>
+              </div>
             </div>
           </div>
         </div>,

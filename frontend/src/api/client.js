@@ -39,6 +39,7 @@ export const getCyberDNABaselines = (userId) => api.get(`/cyberdna/profile/${use
 
 // Events, Alerts & Incidents
 export const getEvents = (params) => api.get('/events', { params })
+export const clearEvents = () => api.post('/events/clear')
 export const getAlerts = (params) => api.get('/alerts', { params })
 export const updateAlert = (alertId, data) => api.patch(`/alerts/${alertId}`, data)
 export const getIncidents = (params) => api.get('/incidents', { params })

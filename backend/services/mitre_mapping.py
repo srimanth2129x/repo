@@ -54,6 +54,24 @@ class MitreMapper:
             "technique_name": "Exfiltration Over C2 Channel",
             "tactic": "Exfiltration",
             "confidence": "MEDIUM"
+        },
+        "T1053.005": {
+            "technique_id": "T1053.005",
+            "technique_name": "Scheduled Task/Job: Scheduled Task",
+            "tactic": "Persistence / Privilege Escalation",
+            "confidence": "HIGH"
+        },
+        "T1136.001": {
+            "technique_id": "T1136.001",
+            "technique_name": "Create Account: Local Account",
+            "tactic": "Persistence",
+            "confidence": "HIGH"
+        },
+        "T1098": {
+            "technique_id": "T1098",
+            "technique_name": "Account Manipulation: Privileged Group Addition",
+            "tactic": "Persistence / Privilege Escalation",
+            "confidence": "HIGH"
         }
     }
 
@@ -89,6 +107,12 @@ class MitreMapper:
             access_mask = str(details.get("granted_access") or details.get("GrantedAccess") or "").upper()
             outbound_bytes = int(details.get("bytes_sent") or details.get("outbound_bytes") or 0)
             dest_port = int(details.get("destination_port") or details.get("DestinationPort") or 0)
+
+        # Fallback to top-level normalized fields if details dict did not populate them
+        if not cmd_line and event_data.get("command_line"):
+            cmd_line = str(event_data.get("command_line")).lower()
+        if not proc_name and event_data.get("process_name"):
+            proc_name = str(event_data.get("process_name")).lower()
 
         supporting_events = [event_data.get("id") or f"evt-{event_id}"]
 
@@ -204,6 +228,42 @@ class MitreMapper:
             res = dict(cls.TECHNIQUES["T1041"])
             res["matched_rule"] = "Outbound Data Anomaly"
             res["reason"] = f"Unusual volumetric outbound transfer ({round(outbound_bytes / (1024*1024), 2)} MB) to port {dest_port} outside baseline."
+            res["supporting_event_ids"] = supporting_events
+            res["status"] = "matched"
+            return res
+
+        # ----------------------------------------------------------------------
+        # Rule 9: T1053.005 - Scheduled Task (Persistence / Privilege Escalation)
+        # Context: Windows Event 4698 or execution of schtasks.exe
+        # ----------------------------------------------------------------------
+        if event_id in ("4698", "scheduled_task_created") or "schtasks" in proc_name or "schtasks" in cmd_line:
+            res = dict(cls.TECHNIQUES["T1053.005"])
+            res["matched_rule"] = "Scheduled Task Persistence / Execution"
+            res["reason"] = "Creation or modification of a Windows scheduled task for persistence (Event 4698 / schtasks.exe)."
+            res["supporting_event_ids"] = supporting_events
+            res["status"] = "matched"
+            return res
+
+        # ----------------------------------------------------------------------
+        # Rule 10: T1136.001 - Create Account: Local Account (Persistence)
+        # Context: Windows Event 4720 or net user /add
+        # ----------------------------------------------------------------------
+        if event_id in ("4720", "account_created") or ("net" in proc_name and "user" in cmd_line and ("/add" in cmd_line or "-add" in cmd_line)):
+            res = dict(cls.TECHNIQUES["T1136.001"])
+            res["matched_rule"] = "Local Account Creation"
+            res["reason"] = "A new local user account was created on the system (Event 4720 / net user /add)."
+            res["supporting_event_ids"] = supporting_events
+            res["status"] = "matched"
+            return res
+
+        # ----------------------------------------------------------------------
+        # Rule 11: T1098 - Account Manipulation (Privilege Escalation)
+        # Context: Windows Event 4732 or net localgroup administrators /add
+        # ----------------------------------------------------------------------
+        if event_id in ("4732", "group_membership_change") or ("localgroup" in cmd_line and ("admin" in cmd_line or "/add" in cmd_line)):
+            res = dict(cls.TECHNIQUES["T1098"])
+            res["matched_rule"] = "Privileged Group Membership Addition"
+            res["reason"] = "A user account was added to a privileged security group (Event 4732 / net localgroup administrators)."
             res["supporting_event_ids"] = supporting_events
             res["status"] = "matched"
             return res

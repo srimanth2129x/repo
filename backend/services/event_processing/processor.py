@@ -71,7 +71,17 @@ def normalize_event(raw: dict) -> dict | None:
         # Determine normalized event_type string; fallback to 'unknown' if not in lookup table
         event_type = raw.get("event_type") or KNOWN_EVENT_TYPES.get(event_id, "unknown")
         # Ensure an ISO-8601 UTC timestamp is present
-        timestamp = raw.get("event_timestamp") or raw.get("timestamp") or datetime.now(timezone.utc).isoformat()
+        raw_ts = raw.get("event_timestamp") or raw.get("timestamp")
+        if not raw_ts:
+            timestamp = datetime.now(timezone.utc).isoformat()
+        elif isinstance(raw_ts, str):
+            raw_ts = raw_ts.strip().replace(" ", "T")
+            if not raw_ts.endswith("Z") and "+" not in raw_ts[-6:] and "-" not in raw_ts[-6:]:
+                timestamp = raw_ts + "Z"
+            else:
+                timestamp = raw_ts
+        else:
+            timestamp = str(raw_ts)
         # Derive canonical device ID (dev-hostname format)
         device_id = str(raw.get("device_id") or f"dev-{raw.get('computer', 'localhost').replace('.', '-')}")
 
