@@ -32,6 +32,11 @@ dist/
 .vscode/
 .idea/
 
+# Individual User App build outputs
+individual-user-app/node_modules/
+individual-user-app/dist/
+individual-user-app/dist_package/
+release/SentinelTwin-User/
+
 # PyInstaller build artifacts
 build/
-

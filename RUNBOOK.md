@@ -1,4 +1,4 @@
-﻿# SentinelTwin — Complete Operations & Runbook
+# SentinelTwin — Complete Operations & Runbook
 
 Welcome to SentinelTwin! This guide explains how to start, configure, build, and run the entire SentinelTwin platform: the central server (Flask API + React SOC Console) and the standalone Windows Telemetry Sensor.
 
