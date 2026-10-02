@@ -40,3 +40,4 @@ release/SentinelTwin-User/
 
 # PyInstaller build artifacts
 build/
+*.zip
