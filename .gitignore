@@ -41,3 +41,7 @@ release/SentinelTwin-User/
 # PyInstaller build artifacts
 build/
 *.zip
+
+# Scratch scripts and temporary files
+scratch/
+

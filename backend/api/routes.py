@@ -705,13 +705,18 @@ def handle_alerts():
 
             if request.method == "POST":
                 data = request.get_json(silent=True) or {}
-                alert_id = data.get("id") or f"alt-{int(datetime.now(timezone.utc).timestamp())}"
                 device_id = data.get("device_id", "local-host")
                 title = data.get("title", "Security Threat Detected")
                 severity = data.get("severity", "HIGH")
                 status = data.get("status", "Open")
                 description = data.get("description", "")
                 created_at = data.get("created_at", datetime.now(timezone.utc).isoformat())
+                raw_risk_pts = data.get("risk_points")
+                try:
+                    risk_pts = int(raw_risk_pts) if raw_risk_pts is not None else 50
+                except (ValueError, TypeError):
+                    risk_pts = 50
+
                 cur.execute("""
                     INSERT INTO alerts (device_id, title, severity, status, description, created_at, timestamp, risk_points)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)

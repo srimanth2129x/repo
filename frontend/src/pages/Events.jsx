@@ -20,13 +20,11 @@
  */
 import React, { useEffect, useState, useCallback, useMemo } from 'react'
 import { createPortal } from 'react-dom'
-import { Activity, Search, RefreshCw, Filter, Terminal, Laptop, Trash2, RotateCcw, EyeOff, ShieldCheck, CheckCircle } from 'lucide-react'
+import { Activity, RefreshCw, Terminal, Laptop, Trash2, RotateCcw, EyeOff } from 'lucide-react'
 import { getEvents, clearEvents } from '../api/client'
 import { Card, SectionHeader, Spinner, EmptyState } from '../components/ui/Card'
-import { useTheme } from '../context/ThemeContext'
 
 export function Events() {
-  const { isDark } = useTheme()
   // Raw event logs fetched from the backend API
   const [events, setEvents] = useState([])
   // Loading spinner state while HTTP request is in-flight
