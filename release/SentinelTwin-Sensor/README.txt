@@ -5,7 +5,7 @@
 Zero-Configuration Deployment:
 1. Copy this entire folder to any authorized Windows laptop.
 2. Double-click "start.bat" or "SentinelTwin-Sensor.exe".
-3. The sensor automatically connects to: http://10.107.14.250:5000
+3. The sensor automatically connects to: http://192.168.1.112:5000
 4. Approve the new endpoint in the SentinelTwin Dashboard (Devices tab).
 
 Requirements:
