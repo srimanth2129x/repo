@@ -125,7 +125,7 @@ export function AppProvider({ children }) {
         // Backend optional fallback
       }
     }
-    loadData()
+    loadData().catch(() => {})
   }, [])
 
   // Scan simulation

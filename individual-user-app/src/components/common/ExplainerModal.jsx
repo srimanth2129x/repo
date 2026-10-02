@@ -9,10 +9,22 @@ export default function ExplainerModal() {
   if (!explainer.isOpen) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-fade-in">
+    <div
+      role="button"
+      tabIndex={0}
+      aria-label="Close modal backdrop"
+      onClick={e => {
+        if (e.target === e.currentTarget) closeExplainer()
+      }}
+      onKeyDown={e => {
+        if (e.key === 'Escape' || (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' '))) {
+          closeExplainer()
+        }
+      }}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-fade-in cursor-default"
+    >
       <div
         className="relative w-full max-w-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl overflow-hidden animate-slide-up"
-        onClick={e => e.stopPropagation()}
       >
         {/* Modal Header */}
         <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100 dark:border-slate-800/80">

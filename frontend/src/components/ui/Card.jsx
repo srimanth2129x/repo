@@ -5,9 +5,21 @@ import { RiskBadge, StatusBadge, MitreBadge, SensorBadge, CategoryBadge, AuthBad
 export { RiskBadge, StatusBadge, MitreBadge, SensorBadge, CategoryBadge, AuthBadge, TransportBadge }
 
 export function Card({ children, className = '', hover = true, onClick }) {
+  const handleKeyDown = onClick
+    ? (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onClick(e)
+        }
+      }
+    : undefined
+
   return (
     <div
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
       onClick={onClick}
+      onKeyDown={handleKeyDown}
       className={`bg-white dark:bg-[#111724] border border-slate-200 dark:border-[#1e2738] rounded-xl p-4 transition-all duration-200 theme-transition ${
         hover ? 'hover:border-slate-300 dark:hover:border-slate-700/80 hover:shadow-sm dark:hover:shadow-[0_4px_16px_rgba(0,0,0,0.4)]' : ''
       } ${onClick ? 'cursor-pointer select-none active:scale-[0.99]' : ''} ${className}`}
@@ -32,6 +44,14 @@ export function StatCard({
 }) {
   const displayTitle = title || label
   const displaySub = sub || subtitle
+  const handleKeyDown = onClick
+    ? (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onClick(e)
+        }
+      }
+    : undefined
 
   // Semantic accent borders (NO decorative cyan/blue)
   const accentGlow = {
@@ -56,7 +76,10 @@ export function StatCard({
 
   return (
     <div
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
       onClick={onClick}
+      onKeyDown={handleKeyDown}
       className={`bg-white dark:bg-[#111724] border border-slate-200 dark:border-[#1e2738] rounded-xl p-4 flex flex-col justify-between transition-all duration-200 theme-transition ${accentGlow} ${
         onClick ? 'cursor-pointer hover:border-slate-300 dark:hover:border-slate-700 active:scale-[0.98]' : ''
       } ${className}`}

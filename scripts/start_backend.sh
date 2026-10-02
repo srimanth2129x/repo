@@ -6,13 +6,13 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ -f "$SCRIPT_DIR/backend/app.py" ]; then
+if [[ -f "$SCRIPT_DIR/backend/app.py" ]]; then
     ROOT_DIR="$SCRIPT_DIR"
-elif [ -f "$SCRIPT_DIR/../backend/app.py" ]; then
+elif [[ -f "$SCRIPT_DIR/../backend/app.py" ]]; then
     ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-elif [ -f "$SCRIPT_DIR/../sentineltwin/backend/app.py" ]; then
+elif [[ -f "$SCRIPT_DIR/../sentineltwin/backend/app.py" ]]; then
     ROOT_DIR="$(cd "$SCRIPT_DIR/../sentineltwin" && pwd)"
-elif [ -f "$SCRIPT_DIR/sentineltwin/backend/app.py" ]; then
+elif [[ -f "$SCRIPT_DIR/sentineltwin/backend/app.py" ]]; then
     ROOT_DIR="$(cd "$SCRIPT_DIR/sentineltwin" && pwd)"
 else
     ROOT_DIR="$SCRIPT_DIR"
@@ -33,7 +33,7 @@ for candidate in \
     "py" \
     "python3" \
     "python"; do
-    if [ -x "$candidate" ] || command -v "$candidate" >/dev/null 2>&1 || [ -f "$candidate" ]; then
+    if [[ -x "$candidate" ]] || command -v "$candidate" >/dev/null 2>&1 || [[ -f "$candidate" ]]; then
         if "$candidate" -c "import flask, jwt" >/dev/null 2>&1; then
             PYTHON_BIN="$candidate"
             break
@@ -41,7 +41,7 @@ for candidate in \
     fi
 done
 
-if [ -z "$PYTHON_BIN" ]; then
+if [[ -z "$PYTHON_BIN" ]]; then
     echo "[-] Error: Could not find a Python interpreter with required dependencies (flask, jwt)."
     echo "[!] Please run: pip install pyjwt flask flask-cors networkx scapy"
     exit 1

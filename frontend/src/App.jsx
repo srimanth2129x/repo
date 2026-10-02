@@ -70,8 +70,10 @@ function AppContent() {
   }, [])
 
   useEffect(() => {
-    loadStatus()
-    const interval = setInterval(loadStatus, 4000)
+    loadStatus().catch(() => {})
+    const interval = setInterval(() => {
+      loadStatus().catch(() => {})
+    }, 4000)
     return () => clearInterval(interval)
   }, [loadStatus])
 

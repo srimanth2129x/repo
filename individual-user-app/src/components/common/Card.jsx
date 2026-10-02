@@ -20,9 +20,21 @@ export default function Card({
     threat: 'bg-gradient-to-br from-red-500/5 to-transparent dark:from-red-500/10 border-red-500/20',
   }
 
+  const handleKeyDown = onClick
+    ? (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onClick(e)
+        }
+      }
+    : undefined
+
   return (
     <div
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
       onClick={onClick}
+      onKeyDown={handleKeyDown}
       className={`rounded-2xl border transition-all duration-200 ${variantStyles[variant] || variantStyles.default} ${
         onClick ? 'cursor-pointer hover:border-slate-300 dark:hover:border-slate-700 hover:shadow-md' : ''
       } ${className}`}
@@ -44,7 +56,7 @@ export default function Card({
           {action && <div>{action}</div>}
         </div>
       )}
-      <div className={title || Icon || action ? 'p-6' : 'p-6'}>{children}</div>
+      <div className="p-6">{children}</div>
     </div>
   )
 }

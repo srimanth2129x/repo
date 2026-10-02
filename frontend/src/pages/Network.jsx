@@ -169,7 +169,7 @@ export function Network({ onDiscoveryChange }) {
     if (!ts) return '—'
     try {
       const d = new Date(ts)
-      return isNaN(d.getTime()) ? String(ts) : d.toLocaleTimeString()
+      return Number.isNaN(d.getTime()) ? String(ts) : d.toLocaleTimeString()
     } catch {
       return String(ts)
     }
@@ -221,15 +221,23 @@ export function Network({ onDiscoveryChange }) {
         />
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-3">
-          {interfaces.map((iface) => {
+          {interfaces.map((iface, idx) => {
             const isSelected = selectedIface?.name === iface.name
             const statusDisplay = iface.status || (iface.is_up ? 'up' : 'active')
             const countForCard = devices.filter((dev) => isIpInSubnet(dev.ip_address, iface)).length
 
             return (
               <div
-                key={iface.name || Math.random()}
+                key={iface.name || `iface-${idx}`}
+                role="button"
+                tabIndex={0}
                 onClick={() => setSelectedIface(iface)}
+                onKeyDown={(ev) => {
+                  if (ev.key === 'Enter' || ev.key === ' ') {
+                    ev.preventDefault()
+                    setSelectedIface(iface)
+                  }
+                }}
                 className={`p-4 rounded-xl border cursor-pointer transition-all duration-200 ${
                   isSelected
                     ? 'border-slate-900 dark:border-white bg-slate-50 dark:bg-slate-800/80 shadow-sm ring-1 ring-slate-900 dark:ring-white'
@@ -336,8 +344,8 @@ export function Network({ onDiscoveryChange }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
-                {filteredDevices.map((device) => (
-                  <tr key={device.id || device.ip_address || Math.random()} className="hover:bg-slate-50 dark:hover:bg-slate-800/30">
+                {filteredDevices.map((device, idx) => (
+                  <tr key={device.id || device.ip_address || `device-${idx}`} className="hover:bg-slate-50 dark:hover:bg-slate-800/30">
                     <td className="py-2.5 px-3 text-slate-800 dark:text-slate-200 font-semibold">{device.ip_address || '—'}</td>
                     <td className="py-2.5 px-3 font-bold text-slate-900 dark:text-slate-100">{device.hostname || 'Unknown'}</td>
                     <td className="py-2.5 px-3 text-slate-500 text-[11px]">{device.mac_address || 'Unknown'}</td>

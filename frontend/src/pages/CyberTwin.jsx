@@ -242,10 +242,20 @@ export function CyberTwin() {
                 {gatewayNode && (
                   <div className="flex flex-col items-center mb-8 relative">
                     <div
+                      role="button"
+                      tabIndex={0}
                       onClick={() => {
                         setSelectedNode(gatewayNode)
                         setSimSource(gatewayNode.id)
                         setDrawerOpen(true)
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          setSelectedNode(gatewayNode)
+                          setSimSource(gatewayNode.id)
+                          setDrawerOpen(true)
+                        }
                       }}
                       className={`p-4 rounded-xl border cursor-pointer transition-all duration-200 min-w-[210px] text-center shadow-sm ${
                         selectedNode?.id === gatewayNode.id
@@ -287,10 +297,20 @@ export function CyberTwin() {
                     return (
                       <div
                         key={node.id}
+                        role="button"
+                        tabIndex={0}
                         onClick={() => {
                           setSelectedNode(node)
                           setSimSource(node.id)
                           setDrawerOpen(true)
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault()
+                            setSelectedNode(node)
+                            setSimSource(node.id)
+                            setDrawerOpen(true)
+                          }
                         }}
                         className={`p-3.5 rounded-xl border cursor-pointer transition-all duration-200 min-w-[180px] max-w-[220px] flex-1 text-left shadow-sm ${
                           isSelected
@@ -403,10 +423,11 @@ export function CyberTwin() {
 
             <div className="space-y-3 mt-2">
               <div>
-                <label className="text-[10px] font-mono text-slate-500 dark:text-slate-400 uppercase block mb-1 font-semibold">
+                <label htmlFor="designated-attack-origin" className="text-[10px] font-mono text-slate-500 dark:text-slate-400 uppercase block mb-1 font-semibold">
                   Designated Attack Origin (Patient Zero)
                 </label>
                 <select
+                  id="designated-attack-origin"
                   value={simSource}
                   onChange={(e) => setSimSource(e.target.value)}
                   className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 text-slate-800 dark:text-slate-200 text-xs font-mono rounded-lg p-2.5 focus:outline-none focus:border-slate-500"

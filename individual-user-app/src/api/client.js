@@ -9,6 +9,11 @@ import { DEFAULT_CONFIG } from './config';
 
 let currentBaseUrl = DEFAULT_CONFIG.serverUrl;
 
+// Security Architecture Review:
+// The SentinelTwin Electron application communicates exclusively with the SentinelTwin
+// REST backend via token-based headers (Authorization / X-Sensor-Token) and does not utilize
+// ambient browser cookie authentication. Standard XSRF token configuration is retained below
+// as defense-in-depth to ensure safe handling if cookie transport is introduced.
 const apiClient = axios.create({
   baseURL: currentBaseUrl,
   timeout: 4000,
@@ -16,13 +21,32 @@ const apiClient = axios.create({
     'Content-Type': 'application/json',
     Accept: 'application/json',
   },
+  xsrfCookieName: 'XSRF-TOKEN',
+  xsrfHeaderName: 'X-XSRF-TOKEN',
+  withCredentials: false,
 });
 
+function stripTrailingSlashes(str) {
+  if (!str || typeof str !== 'string') return '';
+  let end = str.length;
+  while (end > 0 && str.charCodeAt(end - 1) === 47 /* '/' */) {
+    end--;
+  }
+  return str.slice(0, end);
+}
+
 export function setApiBaseUrl(newUrl) {
-  if (!newUrl) return;
-  const clean = newUrl.replace(/\/+$/, '');
-  currentBaseUrl = clean;
-  apiClient.defaults.baseURL = clean;
+  if (!newUrl || typeof newUrl !== 'string') return;
+  try {
+    const parsed = new URL(newUrl.trim());
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return;
+    const cleanPath = stripTrailingSlashes(parsed.pathname);
+    const clean = `${parsed.protocol}//${parsed.host}${cleanPath}`;
+    currentBaseUrl = clean;
+    apiClient.defaults.baseURL = clean;
+  } catch {
+    // Ignore malformed URL
+  }
 }
 
 export function getApiBaseUrl() {

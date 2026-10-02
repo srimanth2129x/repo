@@ -101,7 +101,7 @@ export function CyberDNA() {
     }
   })
   const avgDrift = evaluatedMetrics > 0 ? (totalDriftPct / evaluatedMetrics).toFixed(1) : '0.0'
-  const isDriftDetected = parseFloat(avgDrift) >= 25.0
+  const isDriftDetected = Number.parseFloat(avgDrift) >= 25.0
 
   // Selected Entity details
   const currentEntity = entities.find(
@@ -176,7 +176,15 @@ export function CyberDNA() {
                   return (
                     <div
                       key={id}
+                      role="button"
+                      tabIndex={0}
                       onClick={() => setSelectedEntityId(id)}
+                      onKeyDown={(ev) => {
+                        if (ev.key === 'Enter' || ev.key === ' ') {
+                          ev.preventDefault()
+                          setSelectedEntityId(id)
+                        }
+                      }}
                       className={`p-3 rounded-lg border cursor-pointer transition-all duration-150 text-xs font-mono ${
                         isSelected
                           ? 'bg-slate-100 dark:bg-slate-800 border-slate-900 dark:border-white text-slate-900 dark:text-white font-semibold shadow-sm'
@@ -256,7 +264,7 @@ export function CyberDNA() {
                       className={`h-full transition-all duration-300 ${
                         isDriftDetected ? 'bg-amber-500' : 'bg-emerald-500'
                       }`}
-                      style={{ width: `${Math.min(parseFloat(avgDrift), 100)}%` }}
+                      style={{ width: `${Math.min(Number.parseFloat(avgDrift), 100)}%` }}
                     />
                   </div>
                 </Card>
@@ -310,7 +318,7 @@ export function CyberDNA() {
                     const normMean = m.mean || 1
                     const currentMean = m.short_term_mean ?? m.mean
                     const driftPct = normMean > 0 ? (((currentMean - normMean) / normMean) * 100).toFixed(1) : '0.0'
-                    const isElevated = Math.abs(parseFloat(driftPct)) >= 25.0
+                    const isElevated = Math.abs(Number.parseFloat(driftPct)) >= 25.0
 
                     return (
                       <div key={mkey} className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 space-y-2">

@@ -91,9 +91,10 @@ export function Settings({ config, onConfigSaved }) {
             </h2>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-slate-400">REST API Server URL</label>
+              <label htmlFor="server-url-input" className="text-xs font-medium text-slate-400">REST API Server URL</label>
               <div className="flex items-center space-x-2">
                 <input
+                  id="server-url-input"
                   type="text"
                   value={serverUrl}
                   onChange={(e) => setServerUrl(e.target.value)}
@@ -151,8 +152,9 @@ export function Settings({ config, onConfigSaved }) {
             </h2>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-slate-400">SOC Console Web Address</label>
+              <label htmlFor="soc-web-url-input" className="text-xs font-medium text-slate-400">SOC Console Web Address</label>
               <input
+                id="soc-web-url-input"
                 type="text"
                 value={socWebUrl}
                 onChange={(e) => setSocWebUrl(e.target.value)}
@@ -166,8 +168,9 @@ export function Settings({ config, onConfigSaved }) {
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-slate-400">Telemetry Refresh Interval (ms)</label>
+              <label htmlFor="refresh-interval-input" className="text-xs font-medium text-slate-400">Telemetry Refresh Interval (ms)</label>
               <input
+                id="refresh-interval-input"
                 type="number"
                 min="1000"
                 step="1000"

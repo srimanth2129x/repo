@@ -28,7 +28,7 @@ def run_propagation_simulation(source_device: str, incident_id: int = 0) -> dict
         if source_device not in devices:
             # Fallback to first available device if source not specified or found
             if devices:
-                source_device = list(devices.keys())[0]
+                source_device = next(iter(devices))
             else:
                 return {
                     "source_ip": "Unknown",

@@ -144,7 +144,7 @@ export function Events() {
       const timeStr = e.ingested_at || e.event_timestamp || e.timestamp || e.created_at
       if (!timeStr) return false
       const t = new Date(timeStr).getTime()
-      return !isNaN(t) && t > clearedTime
+      return !Number.isNaN(t) && t > clearedTime
     })
   }, [events, clearedAt, clearedMaxId])
 
@@ -161,7 +161,7 @@ export function Events() {
     if (!ts) return '—'
     try {
       const d = new Date(ts)
-      return isNaN(d.getTime()) ? String(ts) : d.toLocaleTimeString()
+      return Number.isNaN(d.getTime()) ? String(ts) : d.toLocaleTimeString()
     } catch {
       return String(ts)
     }
@@ -399,12 +399,23 @@ export function Events() {
       {/* Confirmation Modal via Portal */}
       {showClearModal && typeof document !== 'undefined' && createPortal(
         <div
-          className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/70 backdrop-blur-xs p-4"
-          onClick={() => setShowClearModal(false)}
+          role="button"
+          tabIndex={0}
+          aria-label="Close modal backdrop"
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/70 backdrop-blur-xs p-4 cursor-default"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setShowClearModal(false)
+            }
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape' || (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' '))) {
+              setShowClearModal(false)
+            }
+          }}
         >
           <div
             className="bg-white dark:bg-[#111724] border border-slate-200 dark:border-slate-800 rounded-xl p-5 shadow-2xl max-w-md w-full theme-transition"
-            onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-start gap-3">
               <div className="p-2 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/50 text-amber-600 dark:text-amber-400 shrink-0">

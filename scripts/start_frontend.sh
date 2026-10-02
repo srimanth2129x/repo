@@ -6,13 +6,13 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ -f "$SCRIPT_DIR/backend/app.py" ]; then
+if [[ -f "$SCRIPT_DIR/backend/app.py" ]]; then
     ROOT_DIR="$SCRIPT_DIR"
-elif [ -f "$SCRIPT_DIR/../backend/app.py" ]; then
+elif [[ -f "$SCRIPT_DIR/../backend/app.py" ]]; then
     ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-elif [ -f "$SCRIPT_DIR/../sentineltwin/backend/app.py" ]; then
+elif [[ -f "$SCRIPT_DIR/../sentineltwin/backend/app.py" ]]; then
     ROOT_DIR="$(cd "$SCRIPT_DIR/../sentineltwin" && pwd)"
-elif [ -f "$SCRIPT_DIR/sentineltwin/backend/app.py" ]; then
+elif [[ -f "$SCRIPT_DIR/sentineltwin/backend/app.py" ]]; then
     ROOT_DIR="$(cd "$SCRIPT_DIR/sentineltwin" && pwd)"
 else
     ROOT_DIR="$SCRIPT_DIR"
@@ -35,7 +35,7 @@ else
 fi
 
 # Install dependencies if node_modules is missing
-if [ ! -d "node_modules" ]; then
+if [[ ! -d "node_modules" ]]; then
     echo "[*] node_modules not found. Running npm install..."
     "$NPM_BIN" install
 fi

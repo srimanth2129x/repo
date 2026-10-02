@@ -9,6 +9,13 @@ const path = require('path');
 const fs = require('fs');
 const http = require('http');
 const https = require('https');
+const crypto = require('crypto');
+
+// Security: All token and identifier generation in the main process
+// must utilize cryptographically secure randomness (crypto.randomUUID / crypto.randomBytes).
+function generateSecureId() {
+  return crypto.randomUUID();
+}
 
 // Enforce single application instance
 const gotTheLock = app.requestSingleInstanceLock();
@@ -143,18 +150,79 @@ ipcMain.handle('get-app-info', () => {
   };
 });
 
+// Security: URL validator for Electron network requests and external navigation.
+// Rejects dangerous non-HTTP schemes and cloud metadata services while preserving
+// legitimate SentinelTwin connectivity across localhost, LAN, and configured endpoints.
+function validateAndParseTargetUrl(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== 'string') {
+    return null;
+  }
+  try {
+    const parsed = new URL(rawUrl.trim());
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return null;
+    }
+    // Reject embedded credentials
+    if (parsed.username || parsed.password) {
+      return null;
+    }
+    const hostname = parsed.hostname.toLowerCase();
+    // Block cloud metadata services and link-local address space
+    if (
+      hostname === '169.254.169.254' ||
+      hostname.startsWith('169.254.') ||
+      hostname === 'metadata.google.internal' ||
+      hostname === 'instance-data'
+    ) {
+      return null;
+    }
+    // Validate port range if explicitly specified
+    if (parsed.port) {
+      const portNum = Number.parseInt(parsed.port, 10);
+      if (Number.isNaN(portNum) || portNum < 1 || portNum > 65535) {
+        return null;
+      }
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
 ipcMain.handle('open-external-url', async (event, url) => {
-  if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
-    await shell.openExternal(url);
+  const parsed = validateAndParseTargetUrl(url);
+  if (parsed) {
+    await shell.openExternal(parsed.href);
     return true;
   }
   return false;
 });
 
-// Direct backend probe from Main process (bypasses browser CORS / mixed-content limitations)
+function stripTrailingSlashes(str) {
+  if (!str || typeof str !== 'string') return '';
+  let end = str.length;
+  while (end > 0 && str.charCodeAt(end - 1) === 47 /* '/' */) {
+    end--;
+  }
+  return str.slice(0, end);
+}
+
+// Direct backend probe from Main process with strict URL validation and SSRF protection
 ipcMain.handle('test-connection', async (event, targetUrl) => {
-  const urlToTest = (targetUrl || loadConfig().serverUrl).replace(/\/+$/, '');
-  const probeEndpoint = `${urlToTest}/api/health`;
+  const rawTarget = targetUrl || loadConfig().serverUrl;
+  const parsedTarget = validateAndParseTargetUrl(rawTarget);
+  if (!parsedTarget) {
+    return {
+      connected: false,
+      error: 'Prohibited or malformed URL. Target must be a valid HTTP/HTTPS endpoint.',
+      latencyMs: 0
+    };
+  }
+
+  // Constrain probe strictly to /api/health endpoint
+  const cleanPath = stripTrailingSlashes(parsedTarget.pathname);
+  const cleanBase = `${parsedTarget.protocol}//${parsedTarget.host}${cleanPath}`;
+  const probeEndpoint = `${cleanBase}/api/health`;
   const startTime = Date.now();
 
   return new Promise((resolve) => {

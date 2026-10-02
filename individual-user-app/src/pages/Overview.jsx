@@ -189,7 +189,15 @@ export default function Overview() {
                 .map(alert => (
                   <div
                     key={alert.id}
+                    role="button"
+                    tabIndex={0}
                     onClick={() => setActiveTab('alerts')}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        setActiveTab('alerts')
+                      }
+                    }}
                     className="p-3.5 rounded-xl border border-amber-500/20 dark:border-amber-500/30 bg-slate-50/90 dark:bg-slate-950/70 hover:border-amber-500/50 dark:hover:border-amber-500/50 hover:shadow-sm cursor-pointer transition-all"
                   >
                     <div className="flex items-center justify-between mb-1.5">

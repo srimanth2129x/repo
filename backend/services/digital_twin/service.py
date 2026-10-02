@@ -252,7 +252,7 @@ def run_propagation_simulation(source_device_id: str, source_risk: int = 70, inc
         if matched:
             source_device_id = matched
         elif G.number_of_nodes() > 0:
-            source_device_id = list(G.nodes())[0]
+            source_device_id = next(iter(G.nodes()))
         else:
             return {
                 "source_device": source_device_id,

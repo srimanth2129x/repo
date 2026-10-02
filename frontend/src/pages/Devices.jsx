@@ -219,7 +219,14 @@ export function Devices({ onNav }) {
               <thead>
                 <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-500 uppercase text-[10px] tracking-wider">
                   <th
+                    tabIndex={0}
                     onClick={() => handleSort('hostname')}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        handleSort('hostname')
+                      }
+                    }}
                     className="py-2.5 px-3 cursor-pointer hover:text-slate-800 dark:hover:text-slate-200"
                   >
                     <div className="flex items-center gap-1">
@@ -227,7 +234,14 @@ export function Devices({ onNav }) {
                     </div>
                   </th>
                   <th
+                    tabIndex={0}
                     onClick={() => handleSort('ip_address')}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        handleSort('ip_address')
+                      }
+                    }}
                     className="py-2.5 px-3 cursor-pointer hover:text-slate-800 dark:hover:text-slate-200"
                   >
                     <div className="flex items-center gap-1">
@@ -240,7 +254,14 @@ export function Devices({ onNav }) {
                   <th className="py-2.5 px-3">Transport</th>
                   <th className="py-2.5 px-3">Sensor</th>
                   <th
+                    tabIndex={0}
                     onClick={() => handleSort('risk_score')}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        handleSort('risk_score')
+                      }
+                    }}
                     className="py-2.5 px-3 cursor-pointer hover:text-slate-800 dark:hover:text-slate-200"
                   >
                     <div className="flex items-center gap-1">

@@ -39,7 +39,7 @@ export default function Events() {
   }
 
   useEffect(() => {
-    loadEvents()
+    loadEvents().catch(() => {})
   }, [])
 
   const filterTabs = [
@@ -173,7 +173,15 @@ export default function Events() {
               return (
                 <div key={evt.id} className="py-4 transition-colors">
                   <div
+                    role="button"
+                    tabIndex={0}
                     onClick={() => setExpandedEventId(isExpanded ? null : evt.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        setExpandedEventId(isExpanded ? null : evt.id)
+                      }
+                    }}
                     className="flex items-start justify-between cursor-pointer group"
                   >
                     <div className="flex items-start space-x-3.5">

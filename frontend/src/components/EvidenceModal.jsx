@@ -93,7 +93,15 @@ export default function EvidenceModal({ alert, onClose }) {
                 {graph.nodes && graph.nodes.map((node, i) => (
                   <div key={node.id} className="flex items-center">
                     <div
+                      role="button"
+                      tabIndex={0}
                       onClick={() => setSelectedNode(node)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          setSelectedNode(node)
+                        }
+                      }}
                       className={`cursor-pointer border rounded-xl p-3 min-w-[140px] text-center shadow-sm transition transform hover:scale-105 ${getNodeColor(node.type)} ${
                         selectedNode?.id === node.id ? 'ring-2 ring-slate-800 dark:ring-white scale-105' : ''
                       }`}

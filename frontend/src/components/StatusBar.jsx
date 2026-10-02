@@ -29,8 +29,10 @@ export function StatusBar({ status = {}, isMonitoring, backendOnline }) {
       }
     }
 
-    measureHealth()
-    const interval = setInterval(measureHealth, 5000)
+    measureHealth().catch(() => {})
+    const interval = setInterval(() => {
+      measureHealth().catch(() => {})
+    }, 5000)
     return () => {
       mounted = false
       clearInterval(interval)

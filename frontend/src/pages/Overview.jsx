@@ -162,8 +162,8 @@ export function Overview({ onNav }) {
         <StatCard
           title="Overall Fleet Risk"
           value={`${avgFleetRisk} / 100`}
-          sub={parseInt(avgFleetRisk) >= 50 ? 'HIGH RISK' : parseInt(avgFleetRisk) >= 25 ? 'SUSPICIOUS' : 'NOMINAL / LOW'}
-          accent={parseInt(avgFleetRisk) >= 50 ? 'red' : parseInt(avgFleetRisk) >= 25 ? 'amber' : 'emerald'}
+          sub={Number.parseInt(avgFleetRisk, 10) >= 50 ? 'HIGH RISK' : Number.parseInt(avgFleetRisk, 10) >= 25 ? 'SUSPICIOUS' : 'NOMINAL / LOW'}
+          accent={Number.parseInt(avgFleetRisk, 10) >= 50 ? 'red' : Number.parseInt(avgFleetRisk, 10) >= 25 ? 'amber' : 'emerald'}
           icon={<Shield className="w-4 h-4" />}
           onClick={() => handleNav('risk')}
         />
@@ -304,7 +304,15 @@ export function Overview({ onNav }) {
                 return (
                   <div
                     key={ev.id || i}
+                    role="button"
+                    tabIndex={0}
                     onClick={() => handleNav('events')}
+                    onKeyDown={(evKey) => {
+                      if (evKey.key === 'Enter' || evKey.key === ' ') {
+                        evKey.preventDefault()
+                        handleNav('events')
+                      }
+                    }}
                     className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800/80 hover:border-slate-300 dark:hover:border-slate-700 flex items-center justify-between text-xs font-mono transition cursor-pointer"
                   >
                     <div className="flex items-center gap-3 truncate">
@@ -358,7 +366,15 @@ export function Overview({ onNav }) {
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-3">
           {/* Quick Action 1: Network Discovery */}
           <div
+            role="button"
+            tabIndex={0}
             onClick={() => handleNav('network')}
+            onKeyDown={(evKey) => {
+              if (evKey.key === 'Enter' || evKey.key === ' ') {
+                evKey.preventDefault()
+                handleNav('network')
+              }
+            }}
             className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 hover:border-slate-400 dark:hover:border-slate-600 cursor-pointer transition group"
           >
             <div className="flex items-center justify-between mb-2">
@@ -375,7 +391,15 @@ export function Overview({ onNav }) {
 
           {/* Quick Action 2: Attack Propagation */}
           <div
+            role="button"
+            tabIndex={0}
             onClick={() => handleNav('cybertwin')}
+            onKeyDown={(evKey) => {
+              if (evKey.key === 'Enter' || evKey.key === ' ') {
+                evKey.preventDefault()
+                handleNav('cybertwin')
+              }
+            }}
             className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 hover:border-slate-400 dark:hover:border-slate-600 cursor-pointer transition group"
           >
             <div className="flex items-center justify-between mb-2">
@@ -392,7 +416,15 @@ export function Overview({ onNav }) {
 
           {/* Quick Action 3: Inspect Drift */}
           <div
+            role="button"
+            tabIndex={0}
             onClick={() => handleNav('cyberdna')}
+            onKeyDown={(evKey) => {
+              if (evKey.key === 'Enter' || evKey.key === ' ') {
+                evKey.preventDefault()
+                handleNav('cyberdna')
+              }
+            }}
             className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 hover:border-slate-400 dark:hover:border-slate-600 cursor-pointer transition group"
           >
             <div className="flex items-center justify-between mb-2">

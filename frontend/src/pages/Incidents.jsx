@@ -184,13 +184,13 @@ export function Incidents() {
             />
           </Card>
         ) : (
-          filteredIncidents.map((inc) => {
+          filteredIncidents.map((inc, idx) => {
             const isResolved = (inc.status || '').toUpperCase() === 'RESOLVED'
             const hasEvidence = inc.evidence_graph && Object.keys(inc.evidence_graph).length > 0
 
             return (
               <Card
-                key={inc.id || Math.random()}
+                key={inc.id ?? `incident-${idx}`}
                 className={`transition-all duration-150 ${
                   isResolved ? 'opacity-70 border-slate-200 dark:border-slate-800/60' : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
                 }`}

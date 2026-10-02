@@ -36,7 +36,7 @@ export function SocBrowser() {
   };
 
   useEffect(() => {
-    checkConnection();
+    checkConnection().catch(() => {});
   }, []);
 
   const handleLaunchBrowser = () => {

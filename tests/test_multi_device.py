@@ -444,3 +444,49 @@ def test_j_dynamic_offline_detection(multi_device_env):
 
     assert devices["DEV-ACTIVE"]["status"].lower() == "online"
     assert devices["DEV-STALE"]["status"].lower() == "offline"
+
+
+# ==========================================================
+# Test K: Sensor Server URL SSRF Validation & Security
+# ==========================================================
+def test_k_sensor_server_url_ssrf_validation():
+    from sensor.windows_sensor import (
+        validate_and_normalize_server_url,
+        probe_transport,
+        register_with_server,
+        drain_offline_queue,
+        send_event,
+    )
+
+    # Valid targets (localhost, LAN, overlay, custom port)
+    assert validate_and_normalize_server_url("http://localhost:5000") == "http://127.0.0.1:5000"
+    assert validate_and_normalize_server_url("http://127.0.0.1:5000/") == "http://127.0.0.1:5000"
+    assert validate_and_normalize_server_url("http://192.168.1.100:5000") == "http://192.168.1.100:5000"
+    assert validate_and_normalize_server_url("https://sentinel.corp.internal:8443") == "https://sentinel.corp.internal:8443"
+
+    # Malicious / Prohibited targets must be rejected
+    prohibited = [
+        "http://169.254.169.254",
+        "http://169.254.1.1",
+        "http://metadata.google.internal",
+        "file:///etc/passwd",
+        "ftp://malicious.host",
+        "gopher://evil.host",
+        "http://user:password@target.com",
+        "javascript:alert(1)",
+        "http://",
+        "",
+        "http://valid.com:99999",  # Port out of range
+    ]
+
+    for bad_url in prohibited:
+        with pytest.raises(ValueError):
+            validate_and_normalize_server_url(bad_url)
+
+    # Probe, register, drain, send must safely fail without unhandled exceptions
+    assert probe_transport("http://169.254.169.254") is False
+    status, _ = register_with_server("http://169.254.169.254", "DEV-TEST")
+    assert status == "INVALID_URL"
+    assert drain_offline_queue("http://169.254.169.254", "DEV-TEST", token="tok") == 0
+    assert send_event("http://169.254.169.254", {"device_id": "DEV-TEST"}) == "failed"
+

@@ -211,6 +211,8 @@ export default function DigitalTwin() {
                 return (
                   <div
                     key={node.id}
+                    role="button"
+                    tabIndex={0}
                     onClick={() =>
                       setSelectedNode({
                         id: node.id,
@@ -224,6 +226,22 @@ export default function DigitalTwin() {
                           : 'Review active command-line invocations or terminate socket.'
                       })
                     }
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        setSelectedNode({
+                          id: node.id,
+                          label: node.label,
+                          type: node.type,
+                          status: node.status,
+                          details: node.details,
+                          blastRadius: node.blastRadius,
+                          recommendation: node.status === 'Healthy'
+                            ? 'This node is operating normally within its baseline.'
+                            : 'Review active command-line invocations or terminate socket.'
+                        })
+                      }
+                    }}
                     style={{ left: node.x, top: node.y, transform: 'translate(-50%, -50%)' }}
                     className={`absolute z-10 p-3.5 rounded-2xl border-2 cursor-pointer transition-all duration-200 shadow-md ${
                       node.color

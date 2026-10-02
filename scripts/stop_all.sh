@@ -4,13 +4,13 @@
 # ==============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ -f "$SCRIPT_DIR/backend/app.py" ]; then
+if [[ -f "$SCRIPT_DIR/backend/app.py" ]]; then
     ROOT_DIR="$SCRIPT_DIR"
-elif [ -f "$SCRIPT_DIR/../backend/app.py" ]; then
+elif [[ -f "$SCRIPT_DIR/../backend/app.py" ]]; then
     ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-elif [ -f "$SCRIPT_DIR/../sentineltwin/backend/app.py" ]; then
+elif [[ -f "$SCRIPT_DIR/../sentineltwin/backend/app.py" ]]; then
     ROOT_DIR="$(cd "$SCRIPT_DIR/../sentineltwin" && pwd)"
-elif [ -f "$SCRIPT_DIR/sentineltwin/backend/app.py" ]; then
+elif [[ -f "$SCRIPT_DIR/sentineltwin/backend/app.py" ]]; then
     ROOT_DIR="$(cd "$SCRIPT_DIR/sentineltwin" && pwd)"
 else
     ROOT_DIR="$SCRIPT_DIR"
@@ -28,7 +28,7 @@ if command -v netstat >/dev/null 2>&1; then
     # Port 5000 (Backend)
     PIDS_5000=$(netstat -ano 2>/dev/null | grep -E "(:5000\s)" | awk '{print $NF}' | sort -u || true)
     for PID in $PIDS_5000; do
-        if [ "$PID" != "0" ] && [ -n "$PID" ]; then
+        if [[ "$PID" != "0" ]] && [[ -n "$PID" ]]; then
             echo "[*] Terminating process on port 5000 (PID: $PID)..."
             taskkill //F //PID "$PID" 2>/dev/null || kill -9 "$PID" 2>/dev/null || true
         fi
@@ -37,7 +37,7 @@ if command -v netstat >/dev/null 2>&1; then
     # Port 5173 (Frontend)
     PIDS_5173=$(netstat -ano 2>/dev/null | grep -E "(:5173\s)" | awk '{print $NF}' | sort -u || true)
     for PID in $PIDS_5173; do
-        if [ "$PID" != "0" ] && [ -n "$PID" ]; then
+        if [[ "$PID" != "0" ]] && [[ -n "$PID" ]]; then
             echo "[*] Terminating process on port 5173 (PID: $PID)..."
             taskkill //F //PID "$PID" 2>/dev/null || kill -9 "$PID" 2>/dev/null || true
         fi

@@ -196,7 +196,14 @@ export function RiskIntel() {
                       return (
                         <tr
                           key={d.id}
+                          tabIndex={0}
                           onClick={() => setSelectedDeviceId(d.id)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault()
+                              setSelectedDeviceId(d.id)
+                            }
+                          }}
                           className={`cursor-pointer transition-colors ${
                             isSelected
                               ? 'bg-slate-100 dark:bg-slate-800/60 font-semibold'

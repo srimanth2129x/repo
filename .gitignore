@@ -16,6 +16,8 @@ env/
 
 # SQLite local databases and sensor checkpoints
 *.db
+*.db-wal
+*.db-shm
 *.sqlite3
 sensor_checkpoint.json
 data/

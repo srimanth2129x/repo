@@ -22,6 +22,7 @@ import hashlib
 import requests
 from pathlib import Path
 from datetime import datetime, timezone
+from urllib.parse import urlsplit
 
 logging.basicConfig(
     level=logging.INFO,
@@ -240,11 +241,76 @@ def get_local_ip() -> str:
     return _CACHED_LOCAL_IP
 
 
+def validate_and_normalize_server_url(server: str) -> str:
+    """
+    Centralized validation and normalization for SentinelTwin server targets.
+    Defends against Server-Side Request Forgery (SSRF) and malicious schemes.
+
+    Security Policies:
+      - Validates string structure and parses using urlsplit.
+      - Enforces allowed schemes: 'http' and 'https' only.
+      - Disallows embedded credentials in URLs (userinfo).
+      - Rejects dangerous cloud metadata endpoints (e.g. 169.254.169.254, metadata.google.internal).
+      - Normalizes 'localhost' to '127.0.0.1' for consistent loopback handling.
+      - Supports legitimate localhost, LAN (192.168.x.x, 10.x.x.x, etc.), private overlay,
+        and configured central servers.
+      - Validates port range (1..65535).
+      - Returns canonical base URL without trailing slash, or raises ValueError.
+    """
+    if not server or not isinstance(server, str):
+        raise ValueError("Server URL must be a non-empty string.")
+
+    cleaned = server.strip()
+    try:
+        parsed = urlsplit(cleaned)
+    except Exception as e:
+        raise ValueError(f"Malformed server URL: {e}") from e
+
+    scheme = (parsed.scheme or "").lower()
+    if scheme not in ("http", "https"):
+        raise ValueError(f"Prohibited scheme '{scheme}'. Only HTTP and HTTPS are permitted.")
+
+    if not parsed.netloc:
+        raise ValueError("Server URL missing valid network location / host.")
+
+    if parsed.username or parsed.password:
+        raise ValueError("User credentials are not permitted in server URLs.")
+
+    hostname = (parsed.hostname or "").lower()
+    if not hostname:
+        raise ValueError("Server URL missing valid hostname.")
+
+    # Block cloud instance metadata services and link-local ranges
+    if (
+        hostname == "169.254.169.254"
+        or hostname.startswith("169.254.")
+        or hostname in ("metadata.google.internal", "instance-data", "metadata")
+    ):
+        raise ValueError(f"Targeting cloud metadata endpoint '{hostname}' is strictly prohibited.")
+
+    # Validate port if specified
+    try:
+        port = parsed.port
+    except ValueError as e:
+        raise ValueError(f"Invalid server URL port: {e}") from e
+
+    if port is not None and not (1 <= port <= 65535):
+        raise ValueError(f"Port {port} is outside valid TCP range 1-65535.")
+
+    # Normalize localhost to 127.0.0.1
+    normalized_host = "127.0.0.1" if hostname == "localhost" else hostname
+
+    netloc = f"{normalized_host}:{port}" if port else normalized_host
+    path = parsed.path.rstrip("/")
+    return f"{scheme}://{netloc}{path}"
+
+
 def normalize_server_url(server: str) -> str:
-    clean = server.strip().rstrip("/")
-    if "://localhost" in clean:
-        clean = clean.replace("://localhost", "://127.0.0.1")
-    return clean
+    """
+    Normalizes and validates the server URL using centralized SSRF protection policy.
+    Maintains backward compatibility while enforcing strict security controls.
+    """
+    return validate_and_normalize_server_url(server)
 
 
 def get_or_create_device_id(device_file: Path | None = None) -> tuple[str, str | None]:
@@ -340,9 +406,10 @@ def save_checkpoints(checkpoints: dict, checkpoint_file: Path | None = None):
 
 
 def probe_transport(server_url: str, timeout: float = 1.5) -> bool:
-    """Fast health probe against candidate server URL."""
+    """Fast health probe against candidate server URL with centralized SSRF validation."""
     try:
-        url = f"{normalize_server_url(server_url)}/api/health"
+        valid_server = validate_and_normalize_server_url(server_url)
+        url = f"{valid_server}/api/health"
         res = requests.get(url, timeout=timeout)
         return res.status_code == 200 and res.json().get("status") == "ok"
     except Exception:
@@ -426,7 +493,13 @@ def register_with_server(
     Returns (auth_status, token).
     """
     target_file = device_file or DEVICE_FILE
-    url = f"{normalize_server_url(server_url)}/api/sensor/register"
+    try:
+        valid_server = validate_and_normalize_server_url(server_url)
+        url = f"{valid_server}/api/sensor/register"
+    except ValueError as e:
+        logger.warning(f"Registration rejected due to invalid server URL: {e}")
+        return "INVALID_URL", token
+
     payload = {
         "device_id": device_id,
         "hostname": get_hostname(),
@@ -583,7 +656,13 @@ def drain_offline_queue(
         return 0
 
     batch_id = f"offline-{device_id}-{int(time.time() * 1000)}-{uuid.uuid4().hex[:6]}"
-    url = f"{normalize_server_url(server_url)}/api/events/batch"
+    try:
+        valid_server = validate_and_normalize_server_url(server_url)
+        url = f"{valid_server}/api/events/batch"
+    except ValueError as e:
+        logger.warning(f"Offline queue drain rejected due to invalid server URL: {e}")
+        return 0
+
     headers = {
         "Content-Type": "application/json",
         "X-Sensor-Token": token or DEFAULT_SENSOR_TOKEN,
@@ -783,7 +862,13 @@ def send_event(
     Sends normalized event to /api/events.
     Returns: 'sent', 'duplicate', 'forbidden', or 'failed'.
     """
-    url = f"{normalize_server_url(server)}/api/events"
+    try:
+        valid_server = validate_and_normalize_server_url(server)
+        url = f"{valid_server}/api/events"
+    except ValueError as e:
+        logger.warning(f"Event delivery rejected due to invalid server URL: {e}")
+        return "failed"
+
     headers = {
         "Content-Type": "application/json",
         "X-Sensor-Token": token or DEFAULT_SENSOR_TOKEN,
