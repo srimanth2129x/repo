@@ -233,23 +233,25 @@ def ingest_event(raw: dict, db_path: str = None) -> dict:
         )
 
         with get_conn(db_path) as conn:
-            conn.execute("""
+            cur = conn.cursor()
+            cur.execute("""
                 INSERT INTO alerts (
-                    id, device_id, title, severity, category, status, description,
+                    device_id, title, severity, category, status, description,
                     created_at, timestamp, risk_points, mitre_technique_id,
                     mitre_technique_name, mitre_tactic, evidence_graph
-                ) VALUES (?, ?, ?, ?, 'Risk Threshold Exceeded', 'Open', ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, 'Risk Threshold Exceeded', 'Open', ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                alert_id, device_id, alert_title, risk_res["severity"], desc,
+                device_id, alert_title, risk_res["severity"], desc,
                 now, now, risk_score,
                 mitre_match["technique_id"] if mitre_match else "",
                 mitre_match["technique_name"] if mitre_match else "",
                 mitre_match["tactic"] if mitre_match else "",
                 json.dumps(evidence_graph)
             ))
+            actual_alert_id = cur.lastrowid
 
         alert_info = {
-            "id": alert_id,
+            "id": actual_alert_id,
             "title": alert_title,
             "severity": risk_res["severity"],
             "triage_level": risk_res["triage_level"],

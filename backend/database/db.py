@@ -265,6 +265,11 @@ def init_db(db_path=None):
             cur.execute("ALTER TABLE alerts ADD COLUMN title TEXT DEFAULT ''")
         if "risk_points" not in existing_alert_cols:
             cur.execute("ALTER TABLE alerts ADD COLUMN risk_points INTEGER DEFAULT 0")
+        if "created_at" not in existing_alert_cols:
+            cur.execute("ALTER TABLE alerts ADD COLUMN created_at TEXT")
+            cur.execute("UPDATE alerts SET created_at = timestamp WHERE created_at IS NULL")
+        if "category" not in existing_alert_cols:
+            cur.execute("ALTER TABLE alerts ADD COLUMN category TEXT DEFAULT 'Threat Detected'")
 
         cur.execute("PRAGMA table_info(devices)")
         existing_device_cols = [row["name"] for row in cur.fetchall()]

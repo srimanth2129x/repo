@@ -712,13 +712,11 @@ def handle_alerts():
                 status = data.get("status", "Open")
                 description = data.get("description", "")
                 created_at = data.get("created_at", datetime.now(timezone.utc).isoformat())
-                risk_pts = int(data.get("risk_points", 50))
-
                 cur.execute("""
-                    INSERT INTO alerts (id, device_id, title, severity, status, description, created_at, timestamp, risk_points)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (alert_id, device_id, title, severity, status, description, created_at, created_at, risk_pts))
-                return jsonify({"status": "created", "id": alert_id}), 201
+                    INSERT INTO alerts (device_id, title, severity, status, description, created_at, timestamp, risk_points)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (device_id, title, severity, status, description, created_at, created_at, risk_pts))
+                return jsonify({"status": "created", "id": cur.lastrowid}), 201
 
             cur.execute("SELECT * FROM alerts ORDER BY id DESC LIMIT 100")
             rows = [dict(row) for row in cur.fetchall()]
