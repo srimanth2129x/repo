@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { Server, Radio, ShieldCheck, Clock, Wifi } from 'lucide-react'
 import { getSystemStatus } from '../api/client'
 
-export function StatusBar({ status = {}, discoveryStatus, isMonitoring, backendOnline }) {
+export function StatusBar({ status = {}, isMonitoring, backendOnline }) {
   const [latency, setLatency] = useState(null)
   const [lastSync, setLastSync] = useState(new Date().toLocaleTimeString())
   const [isLive, setIsLive] = useState(true)
@@ -20,7 +20,7 @@ export function StatusBar({ status = {}, discoveryStatus, isMonitoring, backendO
           setIsLive(true)
           setLastSync(new Date().toLocaleTimeString())
         }
-      } catch (err) {
+      } catch {
         if (mounted) {
           setIsLive(backendOnline ?? false)
           setLatency(null)

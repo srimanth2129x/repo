@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { X, ShieldAlert, GitBranch, Terminal, ArrowRight } from 'lucide-react'
+import { X, GitBranch, Terminal } from 'lucide-react'
 
 export default function EvidenceModal({ alert, onClose }) {
   const [selectedNode, setSelectedNode] = useState(null)

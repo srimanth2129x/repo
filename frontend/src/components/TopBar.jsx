@@ -3,7 +3,7 @@ import { Shield, RefreshCw, Cpu, Server, Activity, Sun, Moon } from 'lucide-reac
 import { useTheme } from '../context/ThemeContext'
 
 export function TopBar({ status = {}, onRefresh, refreshing }) {
-  const { theme, toggleTheme, isDark } = useTheme()
+  const { toggleTheme, isDark } = useTheme()
   const isOnline = status.status === 'operational' || status.backendOnline !== false
   const activeSensors = status.active_sensors ?? status.sensors_connected ?? 0
   const onlineDevices = status.online_devices ?? status.devices_online ?? 0

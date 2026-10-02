@@ -7,19 +7,11 @@ import {
   Radio,
   Share2,
   Dna,
-  RefreshCw,
-  TrendingUp,
   ArrowRight,
-  ChevronRight,
-  Server,
-  Layers,
-  CheckCircle2,
-  Lock,
 } from 'lucide-react'
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from 'recharts'
 import { getDashboardSummary, getDevices, getEvents, getAlerts } from '../api/client'
 import { Card, SectionHeader, StatCard, Spinner, EmptyState } from '../components/ui/Card'
-import { RiskBadge, StatusBadge, MitreBadge } from '../components/ui/Badge'
 import { useTheme } from '../context/ThemeContext'
 
 export function Overview({ onNav }) {

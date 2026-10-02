@@ -6,21 +6,14 @@ import {
   Wifi,
   Smartphone,
   Server,
-  Shield,
-  Clock,
   ArrowUpDown,
   Share2,
-  ExternalLink,
-  CheckCircle2,
-  AlertOctagon,
 } from 'lucide-react'
 import { getDevices, authorizeDevice, revokeDevice } from '../api/client'
 import { Card, SectionHeader, Spinner, EmptyState } from '../components/ui/Card'
-import { RiskBadge, StatusBadge, SensorBadge, CategoryBadge, AuthBadge, TransportBadge } from '../components/ui/Badge'
-import { useTheme } from '../context/ThemeContext'
+import { RiskBadge, SensorBadge, CategoryBadge, AuthBadge, TransportBadge } from '../components/ui/Badge'
 
 export function Devices({ onNav }) {
-  const { isDark } = useTheme()
   const [devices, setDevices] = useState([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')

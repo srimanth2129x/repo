@@ -1,29 +1,16 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import {
   Dna,
-  User,
-  Laptop,
-  Gauge,
-  Activity,
-  AlertTriangle,
   CheckCircle2,
   TrendingUp,
   RefreshCw,
-  Clock,
   Layers,
-  BarChart2,
-  Shield,
-  ArrowUpRight,
 } from 'lucide-react'
 import { getCyberDNAUsers, getCyberDNAProfile, getDevices } from '../api/client'
-import { Card, SectionHeader, StatCard, Spinner, EmptyState } from '../components/ui/Card'
-import { RiskBadge, StatusBadge } from '../components/ui/Badge'
-import { useTheme } from '../context/ThemeContext'
+import { Card, SectionHeader, Spinner, EmptyState } from '../components/ui/Card'
 
 export function CyberDNA() {
-  const { isDark } = useTheme()
   const [entities, setEntities] = useState([])
-  const [devices, setDevices] = useState([])
   const [selectedEntityId, setSelectedEntityId] = useState('')
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -57,7 +44,6 @@ export function CyberDNA() {
       })
 
       setEntities(combined)
-      setDevices(devList)
 
       if (combined.length > 0 && !selectedEntityId) {
         setSelectedEntityId(combined[0].entity_id || combined[0].id)

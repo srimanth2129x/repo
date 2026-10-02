@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import {
-  Shield,
   Play,
   RotateCcw,
   ZoomIn,
@@ -12,25 +11,12 @@ import {
   Wifi,
   Smartphone,
   Share2,
-  Layers,
-  ArrowRight,
-  CheckCircle2,
-  Activity,
-  Cpu,
-  RefreshCw,
-  GitCommit,
-  Flame,
-  CornerDownRight,
-  ShieldCheck,
-  Eye,
 } from 'lucide-react'
 import { Card, SectionHeader, Spinner, EmptyState } from '../components/ui/Card'
-import { RiskBadge, StatusBadge, SensorBadge, CategoryBadge } from '../components/ui/Badge'
+import { RiskBadge, SensorBadge } from '../components/ui/Badge'
 import { getTopology, runSimulation } from '../api/client'
-import { useTheme } from '../context/ThemeContext'
 
 export function CyberTwin() {
-  const { isDark } = useTheme()
   const [nodes, setNodes] = useState([])
   const [edges, setEdges] = useState([])
   const [loading, setLoading] = useState(true)
@@ -39,7 +25,6 @@ export function CyberTwin() {
   const [simSource, setSimSource] = useState('')
   const [simResults, setSimResults] = useState(null)
   const [simulating, setSimulating] = useState(false)
-  const [filterType, setFilterType] = useState('ALL')
   const [zoom, setZoom] = useState(1)
   const [activeTab, setActiveTab] = useState('topology') // 'topology' | 'attackpath' | 'simulation'
 

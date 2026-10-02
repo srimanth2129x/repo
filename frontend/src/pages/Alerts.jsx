@@ -1,13 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react'
-import { BellRing, ShieldAlert, RefreshCw, Search, Eye, AlertTriangle } from 'lucide-react'
+import { BellRing, RefreshCw, Search } from 'lucide-react'
 import { getAlerts } from '../api/client'
 import { Card, SectionHeader, Spinner, EmptyState } from '../components/ui/Card'
 import { RiskBadge, StatusBadge, MitreBadge } from '../components/ui/Badge'
 import EvidenceModal from '../components/EvidenceModal'
-import { useTheme } from '../context/ThemeContext'
 
 export default function AlertsView({ onAlertChange }) {
-  const { isDark } = useTheme()
   const [alerts, setAlerts] = useState([])
   const [loading, setLoading] = useState(true)
   const [selectedAlertForEvidence, setSelectedAlertForEvidence] = useState(null)

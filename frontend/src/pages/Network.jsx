@@ -1,15 +1,9 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react'
 import {
-  Network as NetworkIcon,
   Radio,
   Play,
   Square,
   Trash2,
-  RefreshCw,
-  Shield,
-  Wifi,
-  Laptop,
-  CheckCircle2,
   AlertTriangle,
 } from 'lucide-react'
 import {
@@ -21,7 +15,6 @@ import {
   clearDiscoveredDevices,
 } from '../api/client'
 import { Card, SectionHeader, Spinner, StatusBadge, RiskBadge, EmptyState } from '../components/ui/Card'
-import { useTheme } from '../context/ThemeContext'
 
 const AUTH_STORAGE_KEY = 'sentinel_network_discovery_consent'
 
@@ -44,7 +37,6 @@ function isIpInSubnet(deviceIp, iface) {
 }
 
 export function Network({ onDiscoveryChange }) {
-  const { isDark } = useTheme()
   const [interfaces, setInterfaces] = useState([])
   const [selectedIface, setSelectedIface] = useState(null)
   const [devices, setDevices] = useState([])

@@ -7,17 +7,13 @@ import {
   Clock,
   Laptop,
   CheckCircle2,
-  AlertOctagon,
-  Eye,
 } from 'lucide-react'
 import { getIncidents, updateIncident } from '../api/client'
-import { Card, SectionHeader, Spinner, EmptyState } from '../components/ui/Card'
+import { Card, Spinner, EmptyState } from '../components/ui/Card'
 import { RiskBadge, StatusBadge, MitreBadge } from '../components/ui/Badge'
 import EvidenceModal from '../components/EvidenceModal'
-import { useTheme } from '../context/ThemeContext'
 
 export function Incidents() {
-  const { isDark } = useTheme()
   const [incidents, setIncidents] = useState([])
   const [loading, setLoading] = useState(true)
   const [filterSeverity, setFilterSeverity] = useState('ALL')

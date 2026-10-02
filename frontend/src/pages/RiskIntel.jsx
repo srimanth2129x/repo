@@ -7,22 +7,15 @@ import {
   Laptop,
   CheckCircle2,
   RefreshCw,
-  TrendingUp,
   ChevronRight,
-  HelpCircle,
-  Terminal,
-  Zap,
 } from 'lucide-react'
 import { getRiskDevices, getRiskSummary, getDevices, getAlerts } from '../api/client'
 import { Card, SectionHeader, StatCard, Spinner, EmptyState } from '../components/ui/Card'
-import { RiskBadge, StatusBadge, MitreBadge } from '../components/ui/Badge'
-import { useTheme } from '../context/ThemeContext'
+import { RiskBadge } from '../components/ui/Badge'
 
 export function RiskIntel() {
-  const { isDark } = useTheme()
   const [riskDevices, setRiskDevices] = useState([])
   const [summary, setSummary] = useState({})
-  const [alerts, setAlerts] = useState([])
   const [selectedDeviceId, setSelectedDeviceId] = useState('')
   const [loading, setLoading] = useState(true)
 
@@ -56,7 +49,6 @@ export function RiskIntel() {
 
       setRiskDevices(merged)
       setSummary(sumRes.data || {})
-      setAlerts(alertList)
 
       if (merged.length > 0 && !selectedDeviceId) {
         setSelectedDeviceId(merged[0].id)

@@ -11,7 +11,6 @@ import {
   Laptop,
   ChevronLeft,
   ChevronRight,
-  Radio,
 } from 'lucide-react'
 
 const NAV_GROUPS = [
